@@ -17,6 +17,7 @@ import {
   generateFullMonthSimulatedTrips,
   INITIAL_QUOTATIONS,
   INITIAL_FIXED_DIESEL_CUSTOMERS,
+  INITIAL_CUSTOMER_FUEL_CYCLES,
   STANDARD_20_TRIPS,
 } from './data/seedData';
 import {
@@ -27,6 +28,7 @@ import {
   StandardTruckType,
   QuotationSchema,
   FixedDieselCustomer,
+  CustomerFuelCycle,
 } from './types';
 import {
   processBillingTrips,
@@ -94,6 +96,7 @@ const STORAGE_KEYS = {
   BRACKET: 'transport_billing_bracket_v1',
   QUOTATIONS: 'transport_billing_quotations_v1',
   FIXED_CUSTOMERS: 'transport_billing_fixed_customers_v1',
+  FUEL_CYCLES: 'transport_billing_fuel_cycles_v1',
 };
 
 export default function App() {
@@ -218,6 +221,16 @@ export default function App() {
     return INITIAL_FIXED_DIESEL_CUSTOMERS;
   });
 
+  const [customerFuelCycles, setCustomerFuelCycles] = useState<CustomerFuelCycle[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.FUEL_CYCLES);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_CUSTOMER_FUEL_CYCLES;
+  });
+
   const [dieselMethod, setDieselMethod] = useState<'monthly_avg' | 'daily_spot'>('monthly_avg');
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
 
@@ -285,6 +298,10 @@ export default function App() {
   useEffect(() => {
     safeLocalStorageSet(STORAGE_KEYS.FIXED_CUSTOMERS, fixedCustomers);
   }, [fixedCustomers]);
+
+  useEffect(() => {
+    safeLocalStorageSet(STORAGE_KEYS.FUEL_CYCLES, customerFuelCycles);
+  }, [customerFuelCycles]);
 
   useEffect(() => {
     safeLocalStorageSet(STORAGE_KEYS.CUSTOM_RATES, customRatesMap);
@@ -476,11 +493,13 @@ export default function App() {
     });
     setDieselPrices(INITIAL_DIESEL_PRICES);
     setZoneMappings(INITIAL_ZONE_MAPPINGS);
+    setCustomerFuelCycles(INITIAL_CUSTOMER_FUEL_CYCLES);
     setCustomRatesMap({});
     setSelectedBracket('auto');
     idbRemove(STORAGE_KEYS.TRIPS).catch(console.warn);
     safeLocalStorageRemove(STORAGE_KEYS.TRIPS);
     safeLocalStorageRemove(STORAGE_KEYS.CUSTOM_RATES);
+    safeLocalStorageRemove(STORAGE_KEYS.FUEL_CYCLES);
     addToast('success', 'ล้างข้อมูลเป็น 0 เรียบร้อย', 'เคลียร์ข้อมูลเที่ยวรถเป็น 0 รายการ และรีเซ็ต Rate Card เป็นค่ามาตรฐาน');
   };
 
@@ -660,9 +679,10 @@ export default function App() {
       customRatesMap,
       quotations,
       fixedCustomers,
-      dieselMethod
+      dieselMethod,
+      customerFuelCycles
     );
-  }, [trips, rateCards, dieselPrices, zoneMappings, selectedBracket, customRatesMap, quotations, fixedCustomers, dieselMethod]);
+  }, [trips, rateCards, dieselPrices, zoneMappings, selectedBracket, customRatesMap, quotations, fixedCustomers, dieselMethod, customerFuelCycles]);
 
   const billingSummary = useMemo(() => {
     return computeBillingSummary(calculatedTrips);
@@ -858,6 +878,11 @@ export default function App() {
               onLoad20StandardTrips={handleLoad20StandardTrips}
               onFetchAllFromDatabase={() => handleFetchAllFromDatabase(false)}
               isFetchingDatabase={isFetchingDatabase}
+              fuelCycles={customerFuelCycles}
+              onUpdateFuelCycles={setCustomerFuelCycles}
+              fixedCustomers={fixedCustomers}
+              onUpdateFixedCustomers={setFixedCustomers}
+              dieselPrices={dieselPrices}
             />
           )}
 
@@ -903,6 +928,8 @@ export default function App() {
               onUpdateQuotations={(newQ) => setQuotations(newQ)}
               fixedCustomers={fixedCustomers}
               onUpdateFixedCustomers={(newF) => setFixedCustomers(newF)}
+              customerFuelCycles={customerFuelCycles}
+              onUpdateCustomerFuelCycles={setCustomerFuelCycles}
               initialTab="quotation"
             />
           )}
@@ -941,6 +968,8 @@ export default function App() {
               onUpdateQuotations={(newQ) => setQuotations(newQ)}
               fixedCustomers={fixedCustomers}
               onUpdateFixedCustomers={(newF) => setFixedCustomers(newF)}
+              customerFuelCycles={customerFuelCycles}
+              onUpdateCustomerFuelCycles={setCustomerFuelCycles}
             />
           )}
         </main>

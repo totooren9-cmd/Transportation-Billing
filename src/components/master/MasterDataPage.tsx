@@ -33,6 +33,7 @@ import {
   StandardTruckType,
   QuotationSchema,
   FixedDieselCustomer,
+  CustomerFuelCycle,
   TruckTypeMappingRule,
   FeeMasterItem,
   ConditionRule,
@@ -56,6 +57,7 @@ import {
   deleteFuelPrice,
   deleteZoneMappingRecord,
   deleteRateCardRecord,
+  saveFixedCustomersToSupabase,
 } from '../../services/supabaseService';
 import { DeleteConfirmModal, DeleteTargetType } from '../common/DeleteConfirmModal';
 import { parseRateCardRawText } from '../../services/masterImportParser';
@@ -73,6 +75,8 @@ interface MasterDataPageProps {
   onUpdateQuotations?: (list: QuotationSchema[]) => void;
   fixedCustomers?: FixedDieselCustomer[];
   onUpdateFixedCustomers?: (list: FixedDieselCustomer[]) => void;
+  customerFuelCycles?: CustomerFuelCycle[];
+  onUpdateCustomerFuelCycles?: (cycles: CustomerFuelCycle[]) => void;
   truckTypeMappings?: TruckTypeMappingRule[];
   onUpdateTruckTypeMappings?: (mappings: TruckTypeMappingRule[]) => void;
   feeMasterItems?: FeeMasterItem[];
@@ -95,6 +99,8 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
   onUpdateQuotations,
   fixedCustomers = [],
   onUpdateFixedCustomers,
+  customerFuelCycles = [],
+  onUpdateCustomerFuelCycles,
   truckTypeMappings,
   onUpdateTruckTypeMappings,
   feeMasterItems,
@@ -106,6 +112,69 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
   const [activeTab, setActiveTab] = useState<
     'diesel' | 'rateCard' | 'zone' | 'truckType' | 'feeMaster' | 'conditionRule' | 'quotation' | 'fixedContract'
   >(initialTab || 'diesel');
+
+  // Fixed Diesel Contract Modal & Search states
+  const [searchFixed, setSearchFixed] = useState('');
+  const [isAddFixedModalOpen, setIsAddFixedModalOpen] = useState(false);
+  const [editingFixedCust, setEditingFixedCust] = useState<FixedDieselCustomer | null>(null);
+  const [formFixedName, setFormFixedName] = useState('');
+  const [formFixedRate, setFormFixedRate] = useState('38.00');
+  const [formFixedNotes, setFormFixedNotes] = useState('ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด');
+  const [formFixedActive, setFormFixedActive] = useState(true);
+
+  const handleOpenAddFixed = () => {
+    setEditingFixedCust(null);
+    setFormFixedName('');
+    setFormFixedRate('38.00');
+    setFormFixedNotes('ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด');
+    setFormFixedActive(true);
+    setIsAddFixedModalOpen(true);
+  };
+
+  const handleOpenEditFixed = (cust: FixedDieselCustomer) => {
+    setEditingFixedCust(cust);
+    setFormFixedName(cust.customerName);
+    setFormFixedRate(String(cust.fixedDieselRate));
+    setFormFixedNotes(cust.notes || '');
+    setFormFixedActive(cust.active !== false);
+    setIsAddFixedModalOpen(true);
+  };
+
+  const handleSaveFixedCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formFixedName.trim() || !onUpdateFixedCustomers) return;
+
+    const rateVal = parseFloat(formFixedRate) || 38.0;
+    let updatedList: FixedDieselCustomer[];
+
+    if (editingFixedCust) {
+      updatedList = fixedCustomers.map((c) =>
+        c.id === editingFixedCust.id
+          ? {
+              ...c,
+              customerName: formFixedName.trim(),
+              fixedDieselRate: rateVal,
+              notes: formFixedNotes.trim(),
+              active: formFixedActive,
+            }
+          : c
+      );
+    } else {
+      const newCust: FixedDieselCustomer = {
+        id: `fdc-${Date.now()}`,
+        customerName: formFixedName.trim(),
+        fixedDieselRate: rateVal,
+        notes: formFixedNotes.trim(),
+        active: formFixedActive,
+      };
+      updatedList = [newCust, ...fixedCustomers];
+    }
+
+    onUpdateFixedCustomers(updatedList);
+    setIsAddFixedModalOpen(false);
+    setEditingFixedCust(null);
+    await saveFixedCustomersToSupabase(updatedList);
+  };
 
   // Internal states for Prompt 2 master datasets
   const [internalTruckMappings, setInternalTruckMappings] = useState<TruckTypeMappingRule[]>(
@@ -1580,21 +1649,52 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
       {/* TAB 5: FIXED DIESEL CONTRACT CUSTOMERS */}
       {activeTab === 'fixedContract' && (
         <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200">
-                FIXED DIESEL RATE CONTRACTS
-              </span>
-              <span className="text-xs text-slate-400">ข้อยกเว้นการคำนวณตามราคาตลาด</span>
+          <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200">
+                  FIXED DIESEL RATE CONTRACTS
+                </span>
+                <span className="text-xs text-slate-400">ข้อยกเว้นการคำนวณตามราคาตลาด</span>
+              </div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-purple-600" />
+                บริษัทที่ใช้เรทน้ำมันสัญญาคงที่ (Fixed Diesel Rate Master Data)
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                สำหรับบริษัทที่มีสัญญาเรทน้ำมันคงที่ เช่น <strong>SIEMENS</strong> (ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด)
+                ระบบจะใช้ตัวเลขนี้เป็น Diesel Rate ในการค้นหา Bracket ใน Rate Card โดยตรง
+              </p>
             </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-purple-600" />
-              บริษัทที่ใช้เรทน้ำมันสัญญาคงที่ (Fixed Diesel Rate Master Data)
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              สำหรับบริษัทที่มีสัญญาเรทน้ำมันคงที่ เช่น <strong>SIEMENS</strong> (ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด)
-              ระบบจะใช้ตัวเลขนี้เป็น Diesel Rate ในการค้นหา Bracket ใน Rate Card โดยตรง
-            </p>
+
+            {/* Add Fixed Customer Button */}
+            <div className="shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenAddFixed}
+                className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>➕ เพิ่มข้อมูลสัญญาเรทน้ำมันคงที่</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search bar & list summary */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="relative w-72">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อบริษัท / สัญญา..."
+                value={searchFixed}
+                onChange={(e) => setSearchFixed(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white"
+              />
+            </div>
+            <span className="text-slate-400 text-xs font-semibold">
+              ทั้งหมด {fixedCustomers.length} รายการ
+            </span>
           </div>
 
           {/* List of Fixed Diesel Customers */}
@@ -1612,7 +1712,13 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
-                  {fixedCustomers.map((cust, idx) => (
+                  {fixedCustomers
+                    .filter((c) => {
+                      if (!searchFixed.trim()) return true;
+                      const q = searchFixed.toLowerCase();
+                      return c.customerName.toLowerCase().includes(q) || (c.notes || '').toLowerCase().includes(q);
+                    })
+                    .map((cust, idx) => (
                     <tr key={cust.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
                       <td className="py-3 px-4 font-mono text-slate-400">{idx + 1}</td>
                       <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
@@ -1625,32 +1731,49 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
                         {cust.notes || 'ใช้เรทสัญญาคงที่ตามเงื่อนไขข้อตกลง'}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          Active (ใช้งาน)
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            cust.active !== false
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                          }`}
+                        >
+                          {cust.active !== false ? 'Active (ใช้งาน)' : 'ปิดใช้งาน'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {onUpdateFixedCustomers && (
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
-                            onClick={() => {
-                              setMasterDeleteModal({
-                                isOpen: true,
-                                targetType: 'transport_fixed_customers' as any,
-                                targetLabel: 'สัญญาเรทน้ำมันคงที่ (Fixed Customer)',
-                                itemName: `${cust.customerName} (฿${cust.fixedDieselRate.toFixed(2)})`,
-                                id: cust.id,
-                                onExecute: async (mode) => {
-                                  onUpdateFixedCustomers(fixedCustomers.filter((item) => item.id !== cust.id));
-                                  await deleteRecordFromSupabase('transport_fixed_customers' as any, cust.id, mode);
-                                },
-                              });
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-500 rounded transition-colors"
-                            title="ลบบริษัทนี้ (Sync Supabase)"
+                            type="button"
+                            onClick={() => handleOpenEditFixed(cust)}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors"
+                            title="แก้ไขข้อมูลสัญญานี้"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Edit2 className="w-4 h-4" />
                           </button>
-                        )}
+                          {onUpdateFixedCustomers && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMasterDeleteModal({
+                                  isOpen: true,
+                                  targetType: 'transport_fixed_customers' as any,
+                                  targetLabel: 'สัญญาเรทน้ำมันคงที่ (Fixed Customer)',
+                                  itemName: `${cust.customerName} (฿${cust.fixedDieselRate.toFixed(2)})`,
+                                  id: cust.id,
+                                  onExecute: async (mode) => {
+                                    onUpdateFixedCustomers(fixedCustomers.filter((item) => item.id !== cust.id));
+                                    await deleteRecordFromSupabase('transport_fixed_customers' as any, cust.id, mode);
+                                  },
+                                });
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-500 rounded transition-colors"
+                              title="ลบบริษัทนี้ (Sync Supabase)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1658,6 +1781,114 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Add / Edit Fixed Customer Modal */}
+          {isAddFixedModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-purple-700 to-indigo-700 text-white">
+                  <div className="flex items-center gap-2.5">
+                    <Building2 className="w-5 h-5 text-white" />
+                    <div>
+                      <h3 className="font-bold text-base">
+                        {editingFixedCust ? 'แก้ไขข้อมูลสัญญาเรทน้ำมันคงที่' : 'เพิ่มข้อมูลสัญญาเรทน้ำมันคงที่ (Add Fixed Contract)'}
+                      </h3>
+                      <p className="text-xs text-white/80">
+                        กำหนดเรทน้ำมันคงที่ตามสัญญา (เช่น SIEMENS = 38.00 ฿/L)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddFixedModalOpen(false)}
+                    className="text-white/80 hover:text-white p-1 rounded-lg"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveFixedCustomer} className="p-6 space-y-4 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      ชื่อบริษัท / ลูกค้าในสัญญา (Company Name): <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="เช่น SIEMENS, SIEMENS LIMITED, ELEMATEC"
+                      value={formFixedName}
+                      onChange={(e) => setFormFixedName(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      เรทน้ำมันคงที่ตามสัญญา (Fixed Diesel Rate THB/L): <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        placeholder="38.00"
+                        value={formFixedRate}
+                        onChange={(e) => setFormFixedRate(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono font-bold text-sm text-blue-600 dark:text-blue-400"
+                      />
+                      <span className="absolute right-3 top-2 text-slate-400">บาท/ลิตร</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      ระบบจะใช้ตัวเลขนี้เป็น Diesel Rate ในการค้นหา Bracket ใน Rate Card โดยตรง
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      เงื่อนไขสัญญา / หมายเหตุ (Notes):
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="เช่น ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด"
+                      value={formFixedNotes}
+                      onChange={(e) => setFormFixedNotes(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="fixedActiveToggle"
+                      checked={formFixedActive}
+                      onChange={(e) => setFormFixedActive(e.target.checked)}
+                      className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
+                    />
+                    <label htmlFor="fixedActiveToggle" className="text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                      เปิดใช้งานสัญญานี้ (Active)
+                    </label>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddFixedModalOpen(false)}
+                      className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-md"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{editingFixedCust ? 'บันทึกการแก้ไข' : 'บันทึกข้อมูลสัญญา'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -95,6 +95,21 @@ export interface FixedDieselCustomer {
   active: boolean;
 }
 
+export interface CustomerFuelCycle {
+  id: string;
+  customerName: string; // เช่น "Elematec (Thailand) Co.,Ltd"
+  branch?: 'นวนคร' | 'บางบ่อ' | 'ทั้งหมด';
+  cycleName: string; // เช่น "รอบบิล 21 ชน 20"
+  cycleType?: 'cycle_21_20' | 'cycle_1_30' | 'fixed_rate' | 'custom_range';
+  startDay: number; // 21
+  endDay: number; // 20
+  customRate?: number; // กำหนดเรทน้ำมันคงที่หรือกำหนดเอง เช่น 38.00 หรือ 41.24
+  samplePeriod?: string; // เช่น "21/9/2026 - 20/10/2026"
+  active: boolean;
+  notes?: string;
+  updatedAt?: string;
+}
+
 export interface QuotationTruckRate {
   baseRate: number;
   fuelSurcharge: number;
@@ -234,7 +249,9 @@ export interface CalculatedBillingTrip {
   cancelledTripsInGTT: number;
   missingPriceTrips: number;
   dieselRate: number | null;
-  dieselMethod: 'monthly_avg' | 'fixed_contract' | 'daily_spot';
+  dieselMethod: 'monthly_avg' | 'fixed_contract' | 'daily_spot' | 'cycle_21_20';
+  fuelCyclePeriod?: string;
+  fuelCycleRule?: string;
   reviewStatus: ReviewStatus;
   notes?: string;
 }

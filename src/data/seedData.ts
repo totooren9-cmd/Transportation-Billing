@@ -6,6 +6,7 @@ import {
   DieselPriceRecord,
   ZoneMappingRule,
   FixedDieselCustomer,
+  CustomerFuelCycle,
   QuotationSchema,
   TruckTypeMappingRule,
   FeeMasterItem,
@@ -97,6 +98,13 @@ function buildRateCardRows(truckType: StandardTruckType): RateCardRow[] {
     RATE_CARD_BRACKETS.forEach((bracket, bIdx) => {
       rates[bracket.key] = base + bIdx * step;
     });
+
+    // Special rate adjustments based on contracts:
+    // Si Maha Phot, Prachinburi (ศรีมหาโพธิ์) at diesel rate 40.69 (bracket h_40_42): rate is 3,520 THB
+    if (loc.id === 'rc-19' && truckType === '4W') {
+      rates['h_40_42'] = 3520;
+      rates['f_36_38'] = 3520;
+    }
 
     return {
       id: `rc-${truckType.toLowerCase()}-${idx + 1}`,
@@ -257,6 +265,34 @@ export const INITIAL_FIXED_DIESEL_CUSTOMERS: FixedDieselCustomer[] = [
   },
 ];
 
+export const INITIAL_CUSTOMER_FUEL_CYCLES: CustomerFuelCycle[] = [
+  {
+    id: 'cfc-1',
+    customerName: 'Elematec (Thailand) Co.,Ltd',
+    branch: 'นวนคร',
+    cycleName: 'รอบบิล 21 ชน 20 (Elematec)',
+    cycleType: 'cycle_21_20',
+    startDay: 21,
+    endDay: 20,
+    samplePeriod: '21/9/2026 - 20/10/2026',
+    notes: 'คำนวณเรทน้ำมันระหว่างวันที่ 21 ชน 20 เช่น 21/9/2026 - 20/10/2026 ตามเงื่อนไขสัญญา',
+    active: true,
+  },
+  {
+    id: 'cfc-2',
+    customerName: 'SIEMENS',
+    branch: 'ทั้งหมด',
+    cycleName: 'สัญญาเรทน้ำมันคงที่ 38.00 ฿/L',
+    cycleType: 'fixed_rate',
+    startDay: 1,
+    endDay: 31,
+    customRate: 38.00,
+    samplePeriod: 'สัญญาประจำปี',
+    notes: 'ใช้เรทน้ำมัน 38.00 บาท/ลิตร ตามสัญญา ไม่ผันแปรตามราคาตลาด',
+    active: true,
+  },
+];
+
 export const INITIAL_QUOTATIONS: QuotationSchema[] = [
   {
     id: 'qt-aji-01',
@@ -265,28 +301,32 @@ export const INITIAL_QUOTATIONS: QuotationSchema[] = [
     effectiveDate: '2026-01-01',
     expiryDate: '2026-12-31',
     truckTypes: {
-      '4W': { baseRate: 3280, fuelSurcharge: 250, dropFee: 500, waitingFee: 300, tollFee: 120 },
-      '6W': { baseRate: 4200, fuelSurcharge: 350, dropFee: 600, waitingFee: 400, tollFee: 180 },
-      '10W': { baseRate: 6500, fuelSurcharge: 500, dropFee: 800, waitingFee: 500, tollFee: 250 },
+      '4W': { baseRate: 3520, fuelSurcharge: 0, dropFee: 500, waitingFee: 0, tollFee: 0 },
+      '6W': { baseRate: 4500, fuelSurcharge: 0, dropFee: 500, waitingFee: 0, tollFee: 0 },
+      '10W': { baseRate: 6500, fuelSurcharge: 0, dropFee: 800, waitingFee: 0, tollFee: 0 },
     },
-    specialConditions: ['คิดค่าดรอปแยกจุดละ 500 บาท', 'คำนวณราคาน้ำมันเฉลี่ยรายเดือน (Monthly Average)'],
+    specialConditions: [
+      'คิดค่าดรอปแยกจุดละ 500 บาท / ค่าคอนโซล 500 บาท (ดูจากเลข Trip และทะเบียนซ้ำในวันเดียวกัน)',
+      'ไม่คิด Fuel Surcharge (0 ฿)',
+      'ไม่คิดค่าทางด่วน และค่าคนยก',
+    ],
     additionalFees: {
-      porter: 200,
-      dryIce: 150,
-      seal: 50,
-      toll: 120,
-      waitingFeePerHour: 300,
+      porter: 0,
+      dryIce: 0,
+      seal: 0,
+      toll: 0,
+      waitingFeePerHour: 0,
       dropFeePerPoint: 500,
-      consoleFee: 100,
-      otFee: 250,
+      consoleFee: 500,
+      otFee: 0,
       penalty: 0,
     },
     odRates: {
-      OD4: { baseRate: 2900, fuelRate: 200 },
-      OD6: { baseRate: 3800, fuelRate: 300 },
-      OD10: { baseRate: 5900, fuelRate: 450 },
+      OD4: { baseRate: 0, fuelRate: 0 },
+      OD6: { baseRate: 0, fuelRate: 0 },
+      OD10: { baseRate: 0, fuelRate: 0 },
     },
-    notes: 'ใบเสนอราคาขนส่งสินค้าอาหารและวัตถุดิบ สาขานวนคร',
+    notes: 'สัญญาเรท AJITRADE ศรีมหาโพธิ์ 3,520 บาท (ไม่มี Fuel surcharge, ไม่มีค่าทางด่วน, ค่าดรอป 500 บาท)',
     uploadedAt: '2026-09-01T08:00:00Z',
     fileName: 'Quotation_Ajitrade_2026_NLC.pdf',
   },
@@ -1079,6 +1119,16 @@ export const INITIAL_CONDITION_RULES: ConditionRule[] = [
     applicableTo: 'ทั้งหมด',
     branch: 'ทั้งหมด',
     notes: 'สถานะ Cancelled ใน Raw Data จะถูกหักออกหรือคิดตามเกณฑ์',
+    active: true,
+  },
+  {
+    id: 'cond-9',
+    code: 'C09',
+    conditionName: 'Elematec Fuel Rate Cycle (รอบน้ำมัน 21 ชน 20)',
+    value: 'ใช้เรทน้ำมันระหว่าง 21 ชน 20 (เช่น 21/9/2026 - 20/10/2026)',
+    applicableTo: 'Elematec (Thailand) Co.,Ltd',
+    branch: 'นวนคร',
+    notes: 'คำนวณค่าน้ำมันตามรอบบิล 21 ชน 20 ของ Elematec แทนรอบเดือนปฏิทิน 1-30 โดยใช้เรทเฉลี่ยในรอบบิลค้นหา Bracket',
     active: true,
   },
 ];

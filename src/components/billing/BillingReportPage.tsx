@@ -37,11 +37,15 @@ import {
   TruckSummary,
   RawTripData,
   DiffStatus,
+  CustomerFuelCycle,
+  FixedDieselCustomer,
+  DieselPriceRecord,
 } from '../../types';
 import { exportBillingReportExcel, downloadRawData69TemplateExcel } from '../../services/excelService';
 import { computeBillingSummary } from '../../services/billingCalculator';
 import { DeleteConfirmModal } from '../common/DeleteConfirmModal';
 import { RATE_CARD_BRACKETS } from '../../data/seedData';
+import { ConditionFuelCycleModal } from '../common/ConditionFuelCycleModal';
 
 interface BillingReportPageProps {
   trips: CalculatedBillingTrip[];
@@ -67,6 +71,11 @@ interface BillingReportPageProps {
   onLoad20StandardTrips?: () => void;
   onFetchAllFromDatabase?: () => void;
   isFetchingDatabase?: boolean;
+  fuelCycles?: CustomerFuelCycle[];
+  onUpdateFuelCycles?: (cycles: CustomerFuelCycle[]) => void;
+  fixedCustomers?: FixedDieselCustomer[];
+  onUpdateFixedCustomers?: (customers: FixedDieselCustomer[]) => void;
+  dieselPrices?: DieselPriceRecord[];
 }
 
 export const BillingReportPage: React.FC<BillingReportPageProps> = ({
@@ -93,9 +102,17 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   onLoad20StandardTrips,
   onFetchAllFromDatabase,
   isFetchingDatabase = false,
+  fuelCycles = [],
+  onUpdateFuelCycles = () => {},
+  fixedCustomers = [],
+  onUpdateFixedCustomers = () => {},
+  dieselPrices = [],
 }) => {
   // Checkbox selection state for Bulk Operations
   const [selectedTripIds, setSelectedTripIds] = useState<string[]>([]);
+
+  // Condition & Fuel Cycle Modal state
+  const [isConditionModalOpen, setIsConditionModalOpen] = useState(false);
 
   // Delete Confirm Modal State
   const [deleteModalState, setDeleteModalState] = useState<{
@@ -120,6 +137,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   const [filterTruckNo, setFilterTruckNo] = useState('ALL');
   const [filterDriver, setFilterDriver] = useState('ALL');
   const [filterContractType, setFilterContractType] = useState<'ALL' | 'fixed_diesel' | 'quotation'>('ALL');
+  const [filterFuelCycle, setFilterFuelCycle] = useState<string>('ALL');
   const [filterDiff, setFilterDiff] = useState<'ALL' | 'Match' | 'MinorDiff' | 'MajorDiff'>('ALL');
   const [filterZone, setFilterZone] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -268,6 +286,16 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
       if (filterContractType === 'fixed_diesel' && !t.isFixedDieselContract) return false;
       if (filterContractType === 'quotation' && !t.matchedQuotationName) return false;
 
+      // Fuel Rate Cycle / Range Filter
+      if (filterFuelCycle === 'cycle_21_20') {
+        const isElematec = (t.consigneeShipper || '').toUpperCase().includes('ELEMATEC');
+        if (t.dieselMethod !== 'cycle_21_20' && !isElematec) return false;
+      } else if (filterFuelCycle === 'fixed_contract') {
+        if (t.dieselMethod !== 'fixed_contract' && !t.isFixedDieselContract) return false;
+      } else if (filterFuelCycle === 'monthly_avg') {
+        if (t.dieselMethod !== 'monthly_avg') return false;
+      }
+
       // Diff Status
       if (filterDiff !== 'ALL' && t.diffStatus !== filterDiff) return false;
 
@@ -297,6 +325,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
     filterTruckNo,
     filterDriver,
     filterContractType,
+    filterFuelCycle,
     filterDiff,
     filterZone,
     filterStatus,
@@ -491,6 +520,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
     setFilterTruckNo('ALL');
     setFilterDriver('ALL');
     setFilterContractType('ALL');
+    setFilterFuelCycle('ALL');
     setFilterDiff('ALL');
     setFilterZone('ALL');
     setFilterStatus('ALL');
@@ -566,6 +596,16 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
               <span>Diff Check (เทียบราคาสาขา)</span>
             </button>
           )}
+
+          {/* Condition Rules & Fuel Cycle Modal Button */}
+          <button
+            onClick={() => setIsConditionModalOpen(true)}
+            className="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+            title="เปิดหน้าต่างเงื่อนไข เลือกสาขา บริษัท และช่วงเรทราคาน้ำมัน (เช่น Elematec 21 ชน 20 หรือ SIEMENS 38.00)"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-amber-300" />
+            <span>⚙️ หน้าต่างเงื่อนไข & รอบค่าน้ำมัน</span>
+          </button>
 
           {/* Download 69-Col Template */}
           <button
@@ -971,6 +1011,27 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
               <option value="ALL">สัญญาทุกประเภท (ทั้งหมด)</option>
               <option value="fixed_diesel">🛡️ ตรึงราคาน้ำมัน (Fixed Diesel เช่น SIEMENS)</option>
               <option value="quotation">📋 มีใบเสนอราคาพิเศษ (Quotation)</option>
+            </select>
+          </div>
+
+          {/* Fuel Rate Cycle Filter */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <Fuel className="w-3 h-3 text-purple-500" />
+              <span>รอบเรทน้ำมัน (Fuel Cycle):</span>
+            </label>
+            <select
+              value={filterFuelCycle}
+              onChange={(e) => {
+                setFilterFuelCycle(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            >
+              <option value="ALL">ทุกช่วงเรทน้ำมัน (ทั้งหมด)</option>
+              <option value="cycle_21_20">⛽ รอบ 21 ชน 20 (Elematec: 21/9 - 20/10)</option>
+              <option value="fixed_contract">🛡️ สัญญาเรทคงที่ (Fixed 38.00 ฿/L เช่น SIEMENS)</option>
+              <option value="monthly_avg">📅 รอบปฏิทินมาตรฐาน 1-30 (Monthly Avg)</option>
             </select>
           </div>
 
@@ -2025,8 +2086,23 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                       </td>
 
                       {/* Fuel Surcharge */}
-                      <td className="py-2 px-3 text-right font-mono text-amber-600 dark:text-amber-400">
-                        {trip.fuelSurcharge > 0 ? trip.fuelSurcharge.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
+                      <td className="py-2 px-3 text-right font-mono">
+                        <div className="font-bold text-amber-600 dark:text-amber-400">
+                          {trip.fuelSurcharge > 0 ? trip.fuelSurcharge.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
+                        </div>
+                        {trip.dieselMethod === 'cycle_21_20' ? (
+                          <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400" title={`รอบ ${trip.fuelCyclePeriod || '21 ชน 20'}`}>
+                            ⛽ 21ชน20 {trip.dieselRate ? `(฿${trip.dieselRate.toFixed(2)})` : ''}
+                          </div>
+                        ) : trip.dieselMethod === 'fixed_contract' ? (
+                          <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400" title="สัญญาเรทน้ำมันคงที่">
+                            🛡️ สัญญาคงที่ {trip.dieselRate ? `(฿${trip.dieselRate.toFixed(2)})` : ''}
+                          </div>
+                        ) : trip.dieselRate ? (
+                          <div className="text-[9px] text-slate-400">
+                            @{trip.dieselRate.toFixed(2)} ฿/L
+                          </div>
+                        ) : null}
                       </td>
 
                       {/* Drop Fee */}
@@ -2371,6 +2447,20 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
               setSelectedTripIds((prev) => prev.filter((id) => id !== singleId));
             }
           }}
+        />
+      )}
+
+      {/* Condition & Fuel Cycle Modal */}
+      {isConditionModalOpen && (
+        <ConditionFuelCycleModal
+          isOpen={isConditionModalOpen}
+          onClose={() => setIsConditionModalOpen(false)}
+          fuelCycles={fuelCycles}
+          onUpdateFuelCycles={onUpdateFuelCycles}
+          fixedCustomers={fixedCustomers}
+          onUpdateFixedCustomers={onUpdateFixedCustomers}
+          dieselPrices={dieselPrices}
+          companyOptions={companyOptions}
         />
       )}
     </div>
