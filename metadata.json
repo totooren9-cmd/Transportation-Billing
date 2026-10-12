@@ -1,0 +1,8 @@
+{
+  "name": "Remix Transportation Billing \u0026 Analytics System",
+  "description": "ระบบจัดการและวิเคราะห์ค่าขนส่ง ตรวจสอบ Standard Trip Rate, อัปเดตราคาน้ำมันดีเซล PTT, จับคู่โซนขนส่ง ออกรายงาน Billing Report และสำรองข้อมูลไปยัง Google Drive",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
