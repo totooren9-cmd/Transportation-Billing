@@ -190,6 +190,10 @@ export interface CalculatedBillingTrip {
   odType: string; // 'Company Truck' | 'OD 4' | 'OD 6' | 'OD 10'
   isSubContractor: boolean;
   consigneeShipper: string;
+  truckNo?: string; // ทะเบียนรถ e.g. "3ฒฎ 1714"
+  driverName?: string; // พนักงานขับรถ
+  matchedQuotationName?: string; // บริษัทที่ตรงกับใบเสนอราคา
+  isFixedDieselContract?: boolean; // สัญญาตรึงราคาน้ำมัน
   pickUpName: string;
   pickUpProvince: string;
   deliveryName: string;

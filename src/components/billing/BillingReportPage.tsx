@@ -23,6 +23,12 @@ import {
   Scale,
   DownloadCloud,
   Database,
+  Building2,
+  Fuel,
+  UserCheck,
+  ShieldCheck,
+  MapPin,
+  Car,
 } from 'lucide-react';
 import {
   CalculatedBillingTrip,
@@ -35,6 +41,7 @@ import {
 import { exportBillingReportExcel, downloadRawData69TemplateExcel } from '../../services/excelService';
 import { computeBillingSummary } from '../../services/billingCalculator';
 import { DeleteConfirmModal } from '../common/DeleteConfirmModal';
+import { RATE_CARD_BRACKETS } from '../../data/seedData';
 
 interface BillingReportPageProps {
   trips: CalculatedBillingTrip[];
@@ -110,6 +117,9 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   const [filterBranch, setFilterBranch] = useState('ALL');
   const [filterTruckType, setFilterTruckType] = useState<string>('ALL');
   const [filterODType, setFilterODType] = useState('ALL');
+  const [filterTruckNo, setFilterTruckNo] = useState('ALL');
+  const [filterDriver, setFilterDriver] = useState('ALL');
+  const [filterContractType, setFilterContractType] = useState<'ALL' | 'fixed_diesel' | 'quotation'>('ALL');
   const [filterDiff, setFilterDiff] = useState<'ALL' | 'Match' | 'MinorDiff' | 'MajorDiff'>('ALL');
   const [filterZone, setFilterZone] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -172,7 +182,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   // Pagination (Supports viewing all items across all branches without pagination)
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(15);
-  const [summaryViewTab, setSummaryViewTab] = useState<'both' | 'truck' | 'zone'>('both');
+  const [summaryViewTab, setSummaryViewTab] = useState<'truck' | 'vehicle' | 'customer' | 'branch' | 'zone'>('truck');
 
   // Options
   const companyOptions = useMemo(() => {
@@ -187,6 +197,20 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
     return ['ALL', ...new Set(trips.map((t) => t.zoneLocationMatch).filter(Boolean))];
   }, [trips]);
 
+  const truckNoOptions = useMemo(() => {
+    const list = trips
+      .map((t) => (t.truckNo && t.truckNo !== '-' ? t.truckNo : t.raw?.truckNo))
+      .filter((x): x is string => Boolean(x && x !== '-' && x.trim() !== ''));
+    return ['ALL', ...Array.from(new Set(list)).sort()];
+  }, [trips]);
+
+  const driverOptions = useMemo(() => {
+    const list = trips
+      .map((t) => (t.driverName && t.driverName !== '-' ? t.driverName : t.raw?.driverName))
+      .filter((x): x is string => Boolean(x && x !== '-' && x.trim() !== ''));
+    return ['ALL', ...Array.from(new Set(list)).sort()];
+  }, [trips]);
+
   // Diagnostics & Missing analysis
   const pricedTrips = trips.filter((t) => t.standardTripRate > 0);
   const zeroRateTrips = trips.filter((t) => t.standardTripRate === 0);
@@ -199,20 +223,50 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   // Filtered trips
   const filteredTrips = useMemo(() => {
     return trips.filter((t) => {
+      // Date Range
+      if (filterStartDate && t.issueDate && t.issueDate < filterStartDate) return false;
+      if (filterEndDate && t.issueDate && t.issueDate > filterEndDate) return false;
+
       // Company
       if (filterCompany !== 'ALL' && t.consigneeShipper !== filterCompany) return false;
 
       // Branch
       if (filterBranch !== 'ALL' && t.branch !== filterBranch) return false;
 
-      // Truck Type
-      if (filterTruckType !== 'ALL' && t.standardTruckType !== filterTruckType) return false;
+      // Truck Type (4W, 6W, 10W, OD4, OD6, OD10)
+      if (filterTruckType !== 'ALL') {
+        if (filterTruckType === '4W' || filterTruckType === '6W' || filterTruckType === '10W') {
+          if (t.standardTruckType !== filterTruckType) return false;
+        } else if (filterTruckType === 'OD4') {
+          if (t.odType !== 'OD 4' && t.odType !== 'OD4') return false;
+        } else if (filterTruckType === 'OD6') {
+          if (t.odType !== 'OD 6' && t.odType !== 'OD6') return false;
+        } else if (filterTruckType === 'OD10') {
+          if (t.odType !== 'OD 10' && t.odType !== 'OD10') return false;
+        }
+      }
 
       // OD Type
       if (filterODType !== 'ALL') {
         if (filterODType === 'Company Truck' && t.isSubContractor) return false;
         if (filterODType !== 'Company Truck' && t.odType !== filterODType) return false;
       }
+
+      // Truck No (ทะเบียนรถ)
+      if (filterTruckNo !== 'ALL') {
+        const tNo = (t.truckNo || t.raw?.truckNo || '').trim();
+        if (tNo !== filterTruckNo) return false;
+      }
+
+      // Driver Name (คนขับ)
+      if (filterDriver !== 'ALL') {
+        const dName = (t.driverName || t.raw?.driverName || '').trim();
+        if (dName !== filterDriver) return false;
+      }
+
+      // Contract Type (สัญญาพิเศษ)
+      if (filterContractType === 'fixed_diesel' && !t.isFixedDieselContract) return false;
+      if (filterContractType === 'quotation' && !t.matchedQuotationName) return false;
 
       // Diff Status
       if (filterDiff !== 'ALL' && t.diffStatus !== filterDiff) return false;
@@ -223,23 +277,38 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
       // Status
       if (filterStatus !== 'ALL' && t.reviewStatus !== filterStatus) return false;
 
-      // Keyword
+      // Keyword Search across all fields
       if (searchKeyword.trim()) {
         const q = searchKeyword.toLowerCase();
-        const text = `${t.jobNo} ${t.tripNo} ${t.consigneeShipper} ${t.deliveryName} ${t.pickUpName} ${t.truckTypeRaw} ${t.branch} ${t.odType}`.toLowerCase();
+        const text = `${t.jobNo} ${t.tripNo} ${t.consigneeShipper} ${t.deliveryName} ${t.pickUpName} ${t.truckTypeRaw} ${t.branch} ${t.odType} ${t.truckNo || ''} ${t.driverName || ''} ${t.zoneLocationMatch || ''}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
 
       return true;
     });
-  }, [trips, filterCompany, filterBranch, filterTruckType, filterODType, filterDiff, filterZone, filterStatus, searchKeyword]);
+  }, [
+    trips,
+    filterStartDate,
+    filterEndDate,
+    filterCompany,
+    filterBranch,
+    filterTruckType,
+    filterODType,
+    filterTruckNo,
+    filterDriver,
+    filterContractType,
+    filterDiff,
+    filterZone,
+    filterStatus,
+    searchKeyword,
+  ]);
 
   // Computed summary for filtered set using official multi-metric calculation
   const filteredSummary: BillingReportSummary = useMemo(() => {
     return computeBillingSummary(filteredTrips);
   }, [filteredTrips]);
 
-  // Calculation by Delivery Zone ("คำนวน แต่ละโซน และรถแต่ละประเภทด้วย")
+  // Calculation by Delivery Zone
   const zoneSummaries = useMemo(() => {
     const map = new Map<string, {
       zone: string;
@@ -285,6 +354,133 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
     return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
   }, [filteredTrips]);
 
+  // Summary per Truck / Vehicle (ทะเบียนรถ & คัน)
+  const vehicleSummaries = useMemo(() => {
+    const map = new Map<string, {
+      truckNo: string;
+      driverName: string;
+      truckType: string;
+      branch: string;
+      tripCount: number;
+      baseAmount: number;
+      fuelAmount: number;
+      otherAmount: number;
+      totalAmount: number;
+      branchSentAmount: number;
+      diffAmount: number;
+    }>();
+
+    filteredTrips.forEach((t) => {
+      const key = t.truckNo && t.truckNo !== '-' ? t.truckNo : (t.raw?.truckNo || 'ไม่ระบุทะเบียน');
+      const existing = map.get(key) || {
+        truckNo: key,
+        driverName: t.driverName && t.driverName !== '-' ? t.driverName : (t.raw?.driverName || '-'),
+        truckType: t.standardTruckType || t.truckTypeRaw,
+        branch: t.branch,
+        tripCount: 0,
+        baseAmount: 0,
+        fuelAmount: 0,
+        otherAmount: 0,
+        totalAmount: 0,
+        branchSentAmount: 0,
+        diffAmount: 0,
+      };
+
+      existing.tripCount++;
+      existing.baseAmount += t.baseTripRate || 0;
+      existing.fuelAmount += t.fuelSurcharge || 0;
+      existing.otherAmount += (t.dropFee + t.waitingFee + t.tollFee + t.porterFee + t.otherFees) || 0;
+      existing.totalAmount += t.totalAmount || 0;
+      existing.branchSentAmount += t.customerQuotedPrice || 0;
+      existing.diffAmount += t.diffAmount || 0;
+
+      map.set(key, existing);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [filteredTrips]);
+
+  // Summary per Customer & Special Contract (ลูกค้ารายบริษัท)
+  const customerSummaries = useMemo(() => {
+    const map = new Map<string, {
+      customerName: string;
+      isFixedDiesel: boolean;
+      quotationName?: string;
+      tripCount: number;
+      baseAmount: number;
+      fuelAmount: number;
+      specialFees: number;
+      totalAmount: number;
+      branchSentAmount: number;
+      diffAmount: number;
+    }>();
+
+    filteredTrips.forEach((t) => {
+      const key = t.consigneeShipper || 'ไม่ระบุลูกค้า';
+      const existing = map.get(key) || {
+        customerName: key,
+        isFixedDiesel: Boolean(t.isFixedDieselContract),
+        quotationName: t.matchedQuotationName,
+        tripCount: 0,
+        baseAmount: 0,
+        fuelAmount: 0,
+        specialFees: 0,
+        totalAmount: 0,
+        branchSentAmount: 0,
+        diffAmount: 0,
+      };
+
+      existing.tripCount++;
+      existing.baseAmount += t.baseTripRate || 0;
+      existing.fuelAmount += t.fuelSurcharge || 0;
+      existing.specialFees += (t.dropFee + t.waitingFee + t.porterFee + t.tollFee + t.otherFees) || 0;
+      existing.totalAmount += t.totalAmount || 0;
+      existing.branchSentAmount += t.customerQuotedPrice || 0;
+      existing.diffAmount += t.diffAmount || 0;
+
+      map.set(key, existing);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [filteredTrips]);
+
+  // Summary per Branch & Diff Reconciliation (ทุกสาขาในระบบ)
+  const branchDiffSummaries = useMemo(() => {
+    const map = new Map<string, {
+      branch: string;
+      tripCount: number;
+      calculatedAmount: number;
+      branchSentAmount: number;
+      diffAmount: number;
+      matchCount: number;
+      diffCount: number;
+    }>();
+
+    filteredTrips.forEach((t) => {
+      const key = t.branch || 'ไม่ระบุสาขา';
+      const existing = map.get(key) || {
+        branch: key,
+        tripCount: 0,
+        calculatedAmount: 0,
+        branchSentAmount: 0,
+        diffAmount: 0,
+        matchCount: 0,
+        diffCount: 0,
+      };
+
+      existing.tripCount++;
+      existing.calculatedAmount += t.totalAmount || 0;
+      existing.branchSentAmount += t.customerQuotedPrice || 0;
+      existing.diffAmount += t.diffAmount || 0;
+      if (t.diffStatus === 'Match') existing.matchCount++;
+      else existing.diffCount++;
+
+      map.set(key, existing);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.calculatedAmount - a.calculatedAmount);
+  }, [filteredTrips]);
+
   const handleResetFilters = () => {
     setFilterStartDate('');
     setFilterEndDate('');
@@ -292,6 +488,9 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
     setFilterBranch('ALL');
     setFilterTruckType('ALL');
     setFilterODType('ALL');
+    setFilterTruckNo('ALL');
+    setFilterDriver('ALL');
+    setFilterContractType('ALL');
     setFilterDiff('ALL');
     setFilterZone('ALL');
     setFilterStatus('ALL');
@@ -536,15 +735,12 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             onChange={(e) => onSelectBracket(e.target.value)}
             className="px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white font-medium text-xs focus:ring-2 focus:ring-blue-500"
           >
-            <option value="auto">คำนวณอัตโนมัติตามราคาน้ำมันดีเซล PTT ประจำวัน (Recommended)</option>
-            <option value="b_under30">ช่วงราคา &lt; 30.00 THB/L</option>
-            <option value="c_30_32">ช่วงราคา 30.01 - 32.00 THB/L (เช่น Si Maha Phot = 3,280 ฿)</option>
-            <option value="d_32_34">ช่วงราคา 32.01 - 34.00 THB/L</option>
-            <option value="e_34_36">ช่วงราคา 34.01 - 36.00 THB/L</option>
-            <option value="f_36_38">ช่วงราคา 36.01 - 38.00 THB/L</option>
-            <option value="g_38_40">ช่วงราคา 38.01 - 40.00 THB/L (ช่วงราคากันยายน 2026)</option>
-            <option value="h_40_42">ช่วงราคา 40.01 - 42.00 THB/L (ช่วงราคาสูง)</option>
-            <option value="i_42_44">ช่วงราคา 42.01 - 44.00 THB/L</option>
+            <option value="auto">⚡ คำนวณอัตโนมัติตามราคาน้ำมันดีเซล PTT / บางจาก ประจำวัน (Recommended)</option>
+            {RATE_CARD_BRACKETS.map((b) => (
+              <option key={b.key} value={b.key}>
+                ช่วงราคาดีเซล {b.label} บาท/ลิตร {b.key === 'c_30_32' ? '(เช่น ศรีมหาโพธิ 4W = 3,280 ฿)' : ''}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -711,222 +907,685 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             </select>
           </div>
         </div>
+
+        {/* Extended Dimension Filters: Truck No, Driver, Contract Type, Zone, Dates */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 text-xs">
+          {/* Truck No (ทะเบียนรถ) */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <Car className="w-3 h-3 text-blue-500" />
+              <span>ทะเบียนรถ (Truck No):</span>
+            </label>
+            <select
+              value={filterTruckNo}
+              onChange={(e) => {
+                setFilterTruckNo(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            >
+              {truckNoOptions.map((no) => (
+                <option key={no} value={no}>
+                  {no === 'ALL' ? 'ทุกทะเบียน (ทั้งหมด)' : no}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Driver (คนขับรถ) */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <UserCheck className="w-3 h-3 text-emerald-500" />
+              <span>พนักงานขับรถ:</span>
+            </label>
+            <select
+              value={filterDriver}
+              onChange={(e) => {
+                setFilterDriver(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            >
+              {driverOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d === 'ALL' ? 'ทุกคนขับ (ทั้งหมด)' : d}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Special Contract Type (สัญญาพิเศษรายบริษัท) */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-indigo-500" />
+              <span>สัญญาพิเศษ (Contract):</span>
+            </label>
+            <select
+              value={filterContractType}
+              onChange={(e) => {
+                setFilterContractType(e.target.value as any);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            >
+              <option value="ALL">สัญญาทุกประเภท (ทั้งหมด)</option>
+              <option value="fixed_diesel">🛡️ ตรึงราคาน้ำมัน (Fixed Diesel เช่น SIEMENS)</option>
+              <option value="quotation">📋 มีใบเสนอราคาพิเศษ (Quotation)</option>
+            </select>
+          </div>
+
+          {/* Zone Destination */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-rose-500" />
+              <span>โซนปลายทาง (Zone Match):</span>
+            </label>
+            <select
+              value={filterZone}
+              onChange={(e) => {
+                setFilterZone(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            >
+              {zoneOptions.map((z) => (
+                <option key={z} value={z}>
+                  {z === 'ALL' ? 'ทุกโซนปลายทาง (ทั้งหมด)' : z}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Start Date */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
+              ตั้งแต่วันที่:
+            </label>
+            <input
+              type="date"
+              value={filterStartDate}
+              onChange={(e) => {
+                setFilterStartDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            />
+          </div>
+
+          {/* End Date */}
+          <div className="space-y-1">
+            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
+              ถึงวันที่:
+            </label>
+            <input
+              type="date"
+              value={filterEndDate}
+              onChange={(e) => {
+                setFilterEndDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Summary Section: Layout matching exact brief */}
+      {/* Summary Section: Interactive Multi-Dimension Analytics Tabs */}
       <div className="space-y-4">
-        {/* Table Summary per truck type matching exact brief */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-          <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-blue-600" />
-                <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">
-                  AUTOMATED TRANSPORTATION BILLING REPORT
-                </h3>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                ราคาตามเรตที่มีในไฟล์ | ดูค่าน้ำมันที่ใช้ในคอลัมน์ I และเหตุผลที่ราคาไม่ขึ้นในคอลัมน์ J
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              {onLoad20StandardTrips && (
-                <button
-                  onClick={onLoad20StandardTrips}
-                  className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded font-semibold text-[11px] transition-colors"
-                  title="โหลดชุดข้อมูล 20 คัน (4W: 14 คัน ฿18,790 | 6W: 6 คัน ฿12,400 | รวม ฿31,190)"
-                >
-                  📋 โหลดชุด 20 คัน (฿31,190)
-                </button>
-              )}
-              {onSelectDieselMethod ? (
-                <div className="flex items-center bg-slate-200 dark:bg-slate-700/80 rounded-lg p-0.5 text-[11px]">
-                  <button
-                    onClick={() => onSelectDieselMethod('monthly_avg')}
-                    className={`px-2.5 py-1 rounded font-bold transition-all ${
-                      dieselMethod === 'monthly_avg'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="คำนวณตามราคาดีเซลเฉลี่ยทั้งเดือน (Monthly Average - มาตรฐาน ปตท.)"
-                  >
-                    ★ เฉลี่ยทั้งเดือน (Monthly Avg)
-                  </button>
-                  <button
-                    onClick={() => onSelectDieselMethod('daily_spot')}
-                    className={`px-2.5 py-1 rounded font-bold transition-all ${
-                      dieselMethod === 'daily_spot'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="คำนวณตามราคา ณ วันที่เที่ยวรถ (Issue Date)"
-                  >
-                    ราคา ณ วันที่ (Daily Spot)
-                  </button>
+        {/* Navigation Tabs for the 5 Inspection Structures */}
+        <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
+          <button
+            onClick={() => setSummaryViewTab('truck')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              summaryViewTab === 'truck'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>1. ตามประเภทรถ (4W, 6W, 10W, OD4, OD6)</span>
+          </button>
+          <button
+            onClick={() => setSummaryViewTab('vehicle')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              summaryViewTab === 'vehicle'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Car className="w-3.5 h-3.5" />
+            <span>2. ตามทะเบียนรถ / คัน ({vehicleSummaries.length} คัน)</span>
+          </button>
+          <button
+            onClick={() => setSummaryViewTab('customer')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              summaryViewTab === 'customer'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>3. ตามลูกค้ารายบริษัท & สัญญาพิเศษ ({customerSummaries.length} ราย)</span>
+          </button>
+          <button
+            onClick={() => setSummaryViewTab('branch')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              summaryViewTab === 'branch'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Scale className="w-3.5 h-3.5" />
+            <span>4. ตามสาขา & ตรวจสอบผลต่าง Diff ({branchDiffSummaries.length} สาขา)</span>
+          </button>
+          <button
+            onClick={() => setSummaryViewTab('zone')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              summaryViewTab === 'zone'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            <span>5. ตามโซนปลายทาง ({zoneSummaries.length} โซน)</span>
+          </button>
+        </div>
+
+        {/* Tab 1: By Truck Type */}
+        {summaryViewTab === 'truck' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+                    AUTOMATED TRANSPORTATION BILLING REPORT (จำแนกตามประเภทรถมาตรฐาน 5 ประเภท)
+                  </h3>
                 </div>
-              ) : (
-                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-semibold text-[11px]">
-                  ราคาน้ำมัน: ดีเซลเฉลี่ยรายเดือน (Monthly Avg)
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  คำนวณ Standard Trip Rate และค่าน้ำมันส่วนเพิ่ม (Fuel Surcharge Col I) ตามเรทประเภทรถแต่ละคัน
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                {onLoad20StandardTrips && (
+                  <button
+                    onClick={onLoad20StandardTrips}
+                    className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded font-semibold text-[11px] transition-colors"
+                    title="โหลดชุดข้อมูล 20 คัน (4W: 14 คัน ฿18,790 | 6W: 6 คัน ฿12,400 | รวม ฿31,190)"
+                  >
+                    📋 โหลดชุด 20 คัน (฿31,190)
+                  </button>
+                )}
+                {onSelectDieselMethod ? (
+                  <div className="flex items-center bg-slate-200 dark:bg-slate-700/80 rounded-lg p-0.5 text-[11px]">
+                    <button
+                      onClick={() => onSelectDieselMethod('monthly_avg')}
+                      className={`px-2.5 py-1 rounded font-bold transition-all ${
+                        dieselMethod === 'monthly_avg'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="คำนวณตามราคาดีเซลเฉลี่ยทั้งเดือน (Monthly Average - มาตรฐาน ปตท.)"
+                    >
+                      ★ เฉลี่ยทั้งเดือน (Monthly Avg)
+                    </button>
+                    <button
+                      onClick={() => onSelectDieselMethod('daily_spot')}
+                      className={`px-2.5 py-1 rounded font-bold transition-all ${
+                        dieselMethod === 'daily_spot'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="คำนวณตามราคา ณ วันที่เที่ยวรถ (Issue Date)"
+                    >
+                      ราคา ณ วันที่ (Daily Spot)
+                    </button>
+                  </div>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-semibold text-[11px]">
+                    ราคาน้ำมัน: ดีเซลเฉลี่ยรายเดือน (Monthly Avg)
+                  </span>
+                )}
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  หน่วย: บาท (THB)
                 </span>
-              )}
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                หน่วย: บาท (THB)
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-2.5 px-6">ประเภทรถ</th>
+                    <th className="py-2.5 px-6 text-center">จำนวน (คัน)</th>
+                    <th className="py-2.5 px-6 text-right">ราคาเรทฐาน (Base)</th>
+                    <th className="py-2.5 px-6 text-right">ค่าน้ำมัน (Fuel Col I)</th>
+                    <th className="py-2.5 px-6 text-right">ค่าอื่นๆ</th>
+                    <th className="py-2.5 px-6 text-right font-bold text-blue-600 dark:text-blue-400">Total Summary Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                  {filteredSummary.summaries.map((row, idx) => {
+                    const isGrandTotal = row.truckType === 'รวมทั้งหมด';
+                    return (
+                      <tr
+                        key={idx}
+                        className={`transition-colors ${
+                          isGrandTotal
+                            ? 'bg-blue-50/70 dark:bg-blue-950/40 font-bold text-slate-900 dark:text-white text-xs'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
+                        }`}
+                      >
+                        <td className="py-2.5 px-6 font-semibold">
+                          {row.truckType === '4W' && 'รถ 4 ล้อ (4W)'}
+                          {row.truckType === '6W' && 'รถ 6 ล้อ (6W)'}
+                          {row.truckType === '10W' && 'รถ 10 ล้อ (10W)'}
+                          {isGrandTotal && 'รวมทั้งหมด'}
+                        </td>
+                        <td className="py-2.5 px-6 text-center font-mono font-medium">
+                          {isGrandTotal ? Number(row.count).toFixed(2) : row.count}
+                        </td>
+                        <td className="py-2.5 px-6 text-right font-mono">
+                          {row.baseRateAmount > 0
+                            ? row.baseRateAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+                            : '-'}
+                        </td>
+                        <td className="py-2.5 px-6 text-right font-mono text-amber-600 dark:text-amber-400">
+                          {row.fuelSurchargeAmount > 0
+                            ? row.fuelSurchargeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+                            : '-'}
+                        </td>
+                        <td className="py-2.5 px-6 text-right font-mono">
+                          {row.otherFeesAmount > 0
+                            ? row.otherFeesAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+                            : '-'}
+                        </td>
+                        <td className="py-2.5 px-6 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                          {row.totalAmount > 0
+                            ? row.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+                            : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: By Vehicle & Truck No (ตรวจสอบตามทะเบียนรถ / คัน) */}
+        {summaryViewTab === 'vehicle' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
+                  <Car className="w-4 h-4 text-emerald-600" />
+                  <span>2. ตรวจสอบตามทะเบียนรถ / คัน / พนักงานขับรถ (Truck No & Vehicle Summary)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  จำแนกรายคัน คำนวณ Standard Trip Rate และค่าน้ำมันส่วนเพิ่ม พร้อมเปรียบเทียบยอดที่สาขาส่งมา vs ระบบ
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                พบรถทั้งหมด {vehicleSummaries.length} คัน / ทะเบียน
               </span>
             </div>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
-                <tr>
-                  <th className="py-2.5 px-6">ประเภทรถ</th>
-                  <th className="py-2.5 px-6 text-center">จำนวน (คัน)</th>
-                  <th className="py-2.5 px-6 text-right">ราคาเรทฐาน (Base)</th>
-                  <th className="py-2.5 px-6 text-right">ค่าน้ำมัน (Fuel Col I)</th>
-                  <th className="py-2.5 px-6 text-right">ค่าอื่นๆ</th>
-                  <th className="py-2.5 px-6 text-right font-bold text-blue-600 dark:text-blue-400">Total Summary Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
-                {filteredSummary.summaries.map((row, idx) => {
-                  const isGrandTotal = row.truckType === 'รวมทั้งหมด';
-                  return (
-                    <tr
-                      key={idx}
-                      className={`transition-colors ${
-                        isGrandTotal
-                          ? 'bg-blue-50/70 dark:bg-blue-950/40 font-bold text-slate-900 dark:text-white text-xs'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
-                      }`}
-                    >
-                      <td className="py-2.5 px-6 font-semibold">
-                        {row.truckType === '4W' && 'รถ 4 ล้อ (4W)'}
-                        {row.truckType === '6W' && 'รถ 6 ล้อ (6W)'}
-                        {row.truckType === '10W' && 'รถ 10 ล้อ (10W)'}
-                        {isGrandTotal && 'รวมทั้งหมด'}
-                      </td>
-                      <td className="py-2.5 px-6 text-center font-mono font-medium">
-                        {isGrandTotal ? Number(row.count).toFixed(2) : row.count}
-                      </td>
-                      <td className="py-2.5 px-6 text-right font-mono">
-                        {row.baseRateAmount > 0
-                          ? row.baseRateAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-                          : '-'}
-                      </td>
-                      <td className="py-2.5 px-6 text-right font-mono text-amber-600 dark:text-amber-400">
-                        {row.fuelSurchargeAmount > 0
-                          ? row.fuelSurchargeAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-                          : '-'}
-                      </td>
-                      <td className="py-2.5 px-6 text-right font-mono">
-                        {row.otherFeesAmount > 0
-                          ? row.otherFeesAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-                          : '-'}
-                      </td>
-                      <td className="py-2.5 px-6 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
-                        {row.totalAmount > 0
-                          ? row.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-                          : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Breakdown by Delivery Zone & Truck Types ("คำนวน แต่ละโซน และรถแต่ละประเภทด้วย") */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-          <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
-                <span>📍 สรุปคำนวณแยกตามแต่ละโซน & รถแต่ละประเภท (Zone & Truck Type Breakdown)</span>
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                คำนวณจำนวนรถและยอดเงินรวมของแต่ละโซน/ปลายทาง แยกตามรถ 4 ล้อ, 6 ล้อ และ 10 ล้อ
-              </p>
-            </div>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              พบ {zoneSummaries.length} โซนปลายทาง
-            </span>
-          </div>
-
-          <div className="overflow-x-auto max-h-72">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
-                <tr>
-                  <th className="py-2 px-4">โซน / อำเภอปลายทาง</th>
-                  <th className="py-2 px-3">จังหวัด</th>
-                  <th className="py-2 px-3 text-center">4W (คัน)</th>
-                  <th className="py-2 px-3 text-center">6W (คัน)</th>
-                  <th className="py-2 px-3 text-center">10W (คัน)</th>
-                  <th className="py-2 px-3 text-center font-bold">รวม (คัน)</th>
-                  <th className="py-2 px-3 text-right">ค่าเรทฐาน</th>
-                  <th className="py-2 px-3 text-right">ค่าน้ำมัน (Col I)</th>
-                  <th className="py-2 px-3 text-right">ค่าอื่นๆ</th>
-                  <th className="py-2 px-4 text-right font-bold text-blue-600 dark:text-blue-400">Total Amount (บาท)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
-                {zoneSummaries.length === 0 ? (
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
                   <tr>
-                    <td colSpan={10} className="py-4 text-center text-slate-400">
-                      ไม่มีข้อมูลโซนขนส่ง
-                    </td>
+                    <th className="py-2.5 px-4">ทะเบียนรถ (คัน)</th>
+                    <th className="py-2.5 px-3">พนักงานขับรถ</th>
+                    <th className="py-2.5 px-3 text-center">ประเภทรถ</th>
+                    <th className="py-2.5 px-3 text-center">สาขา</th>
+                    <th className="py-2.5 px-3 text-center font-bold">จำนวนเที่ยว</th>
+                    <th className="py-2.5 px-3 text-right">ค่าเรทฐาน</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">ค่าน้ำมันส่วนเพิ่ม</th>
+                    <th className="py-2.5 px-3 text-right">ค่าอื่นๆ</th>
+                    <th className="py-2.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">ยอดคำนวณมาตรฐาน</th>
+                    <th className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">ยอดสาขาส่งมา</th>
+                    <th className="py-2.5 px-3 text-right font-bold">ผลต่าง (Diff)</th>
                   </tr>
-                ) : (
-                  zoneSummaries.map((z, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                      <td className="py-2 px-4 font-semibold text-slate-800 dark:text-white">
-                        {z.zone}
-                      </td>
-                      <td className="py-2 px-3 text-slate-500 dark:text-slate-400">
-                        {z.province}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono">
-                        {z.count4W > 0 ? (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold">
-                            {z.count4W}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono">
-                        {z.count6W > 0 ? (
-                          <span className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold">
-                            {z.count6W}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono">
-                        {z.count10W > 0 ? (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-semibold">
-                            {z.count10W}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono font-bold">
-                        {z.totalCount}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono">
-                        {z.baseAmount > 0 ? z.baseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono text-amber-600 dark:text-amber-400">
-                        {z.fuelAmount > 0 ? z.fuelAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono">
-                        {z.otherAmount > 0 ? z.otherAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
-                      </td>
-                      <td className="py-2 px-4 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
-                        ฿{z.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                  {vehicleSummaries.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-6 text-center text-slate-400">
+                        ไม่พบข้อมูลรถตามเงื่อนไขที่เลือก
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    vehicleSummaries.map((v, idx) => {
+                      const hasDiff = Math.abs(v.diffAmount) > 0.01;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                          <td className="py-2 px-4 font-mono font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                            <span>{v.truckNo}</span>
+                          </td>
+                          <td className="py-2 px-3 text-slate-600 dark:text-slate-400">{v.driverName}</td>
+                          <td className="py-2 px-3 text-center font-mono">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                              {v.truckType}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-center font-medium">สาขา{v.branch}</td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {v.tripCount}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            ฿{v.baseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-amber-600 dark:text-amber-400 font-semibold">
+                            ฿{v.fuelAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            ฿{v.otherAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                            ฿{v.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-500 dark:text-slate-400">
+                            ฿{v.branchSentAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            {hasDiff ? (
+                              <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                {v.diffAmount > 0 ? `+฿${v.diffAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : `-฿${Math.abs(v.diffAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Match</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Tab 3: By Customer & Shipper (ตรวจสอบตามลูกค้ารายบริษัท) */}
+        {summaryViewTab === 'customer' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
+                  <Building2 className="w-4 h-4 text-indigo-600" />
+                  <span>3. ตรวจสอบตามลูกค้ารายบริษัท (Customer / Shipper & Special Contract Rules)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  รองรับสัญญาพิเศษ เช่น Fixed Diesel Rate Contract (เช่น Siemens กำหนดเรทตรึง) และเชื่อมโยง Quotation สิทธิประโยชน์
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                พบ {customerSummaries.length} บริษัทลูกค้า
+              </span>
+            </div>
+
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
+                  <tr>
+                    <th className="py-2.5 px-4">บริษัทลูกค้า (Customer / Shipper)</th>
+                    <th className="py-2.5 px-3">ประเภทสัญญาพิเศษ</th>
+                    <th className="py-2.5 px-3 text-center font-bold">จำนวนเที่ยว</th>
+                    <th className="py-2.5 px-3 text-right">ค่าเรทฐาน</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">ค่าน้ำมันส่วนเพิ่ม</th>
+                    <th className="py-2.5 px-3 text-right">สิทธิประโยชน์ (ดรอป/รอ/คนยก)</th>
+                    <th className="py-2.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">ยอดคำนวณมาตรฐาน</th>
+                    <th className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">ยอดสาขาส่งมา</th>
+                    <th className="py-2.5 px-3 text-right font-bold">ผลต่าง (Diff)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                  {customerSummaries.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-6 text-center text-slate-400">
+                        ไม่พบข้อมูลลูกค้า
+                      </td>
+                    </tr>
+                  ) : (
+                    customerSummaries.map((c, idx) => {
+                      const hasDiff = Math.abs(c.diffAmount) > 0.01;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                          <td className="py-2 px-4 font-semibold text-slate-800 dark:text-white">
+                            {c.customerName}
+                          </td>
+                          <td className="py-2 px-3">
+                            {c.isFixedDiesel ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 flex items-center gap-1 w-fit">
+                                <ShieldCheck className="w-3 h-3 text-amber-600" />
+                                <span>Fixed Diesel Contract</span>
+                              </span>
+                            ) : c.quotationName ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300 flex items-center gap-1 w-fit">
+                                <Sparkles className="w-3 h-3 text-purple-600" />
+                                <span>{c.quotationName}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">มาตรฐาน (Standard Card)</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {c.tripCount}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            ฿{c.baseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-amber-600 dark:text-amber-400 font-semibold">
+                            ฿{c.fuelAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            ฿{c.specialFees.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                            ฿{c.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-500 dark:text-slate-400">
+                            ฿{c.branchSentAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            {hasDiff ? (
+                              <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                {c.diffAmount > 0 ? `+฿${c.diffAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : `-฿${Math.abs(c.diffAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Match</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: By Branch & Diff Reconciliation (ตรวจสอบตามสาขา) */}
+        {summaryViewTab === 'branch' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
+                  <Scale className="w-4 h-4 text-blue-600" />
+                  <span>4. ตรวจสอบตามสาขาในระบบ (Branch Sent Rate vs Calculated Rate & Diff Amount)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  จำแนกข้อมูลทุกสาขา (เช่น นวนคร NLC, บางบ่อ BBO) เปรียบเทียบยอดที่สาขาส่งมา vs คำนวณมาตรฐานเพื่อหาผลต่าง
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                พบ {branchDiffSummaries.length} สาขา
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-2.5 px-5">สาขาในระบบ (Branch)</th>
+                    <th className="py-2.5 px-4 text-center font-bold">จำนวนเที่ยว</th>
+                    <th className="py-2.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">ยอดคำนวณมาตรฐาน (Calculated)</th>
+                    <th className="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300">ยอดที่สาขาส่งมา (Branch Sent)</th>
+                    <th className="py-2.5 px-4 text-right font-bold">ผลต่างสุทธิ (Diff Amount)</th>
+                    <th className="py-2.5 px-4 text-center text-emerald-600 dark:text-emerald-400 font-semibold">Match (ตรงกัน)</th>
+                    <th className="py-2.5 px-4 text-center text-rose-600 dark:text-rose-400 font-semibold">Diff (พบส่วนต่าง)</th>
+                    <th className="py-2.5 px-4 text-center">ความถูกต้อง</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                  {branchDiffSummaries.map((b, idx) => {
+                    const accuracyPct = b.tripCount > 0 ? ((b.matchCount / b.tripCount) * 100).toFixed(1) : '100.0';
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                        <td className="py-3 px-5 font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-blue-500" />
+                          <span>สาขา{b.branch}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-blue-600 dark:text-blue-400">
+                          {b.tripCount.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                          ฿{b.calculatedAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-slate-600 dark:text-slate-300">
+                          ฿{b.branchSentAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold">
+                          {Math.abs(b.diffAmount) < 0.01 ? (
+                            <span className="text-emerald-600 dark:text-emerald-400">฿0.00 (Match)</span>
+                          ) : (
+                            <span className={b.diffAmount > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}>
+                              {b.diffAmount > 0 ? `+฿${b.diffAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : `-฿${Math.abs(b.diffAmount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                          {b.matchCount} เที่ยว
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-rose-600 dark:text-rose-400 font-bold">
+                          {b.diffCount} เที่ยว
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            Number(accuracyPct) >= 95
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          }`}>
+                            {accuracyPct}% Match
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 5: By Delivery Zone (ตรวจสอบตามโซนปลายทาง) */}
+        {summaryViewTab === 'zone' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-700/60 px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
+                  <MapPin className="w-4 h-4 text-rose-600" />
+                  <span>5. สรุปคำนวณแยกตามแต่ละโซน & รถแต่ละประเภท (Zone & Truck Type Breakdown)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  คำนวณจำนวนรถและยอดเงินรวมของแต่ละโซน/ปลายทาง แยกตามรถ 4 ล้อ, 6 ล้อ และ 10 ล้อ
+                </p>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                พบ {zoneSummaries.length} โซนปลายทาง
+              </span>
+            </div>
+
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100/70 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
+                  <tr>
+                    <th className="py-2.5 px-4">โซน / อำเภอปลายทาง</th>
+                    <th className="py-2.5 px-3">จังหวัด</th>
+                    <th className="py-2.5 px-3 text-center">4W (คัน)</th>
+                    <th className="py-2.5 px-3 text-center">6W (คัน)</th>
+                    <th className="py-2.5 px-3 text-center">10W (คัน)</th>
+                    <th className="py-2.5 px-3 text-center font-bold">รวม (คัน)</th>
+                    <th className="py-2.5 px-3 text-right">ค่าเรทฐาน</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">ค่าน้ำมัน (Col I)</th>
+                    <th className="py-2.5 px-3 text-right">ค่าอื่นๆ</th>
+                    <th className="py-2.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">Total Amount (บาท)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
+                  {zoneSummaries.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-6 text-center text-slate-400">
+                        ไม่มีข้อมูลโซนขนส่ง
+                      </td>
+                    </tr>
+                  ) : (
+                    zoneSummaries.map((z, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                        <td className="py-2 px-4 font-semibold text-slate-800 dark:text-white">
+                          {z.zone}
+                        </td>
+                        <td className="py-2 px-3 text-slate-500 dark:text-slate-400">
+                          {z.province}
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono">
+                          {z.count4W > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold">
+                              {z.count4W}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono">
+                          {z.count6W > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold">
+                              {z.count6W}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono">
+                          {z.count10W > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-semibold">
+                              {z.count10W}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono font-bold">
+                          {z.totalCount}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono">
+                          {z.baseAmount > 0 ? z.baseAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-amber-600 dark:text-amber-400">
+                          {z.fuelAmount > 0 ? z.fuelAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono">
+                          {z.otherAmount > 0 ? z.otherAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
+                        </td>
+                        <td className="py-2 px-4 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                          ฿{z.totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Breakdown Mini-Cards: Branches, Sub-Contractor OD, and Price Reconciliation */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
