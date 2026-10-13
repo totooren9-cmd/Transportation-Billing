@@ -702,9 +702,9 @@ export function findMatchingQuotation(
  */
 export function processBillingTrips(
   rawTrips: RawTripData[],
-  rateCards: { [key in StandardTruckType]: RateCardTable },
-  dieselDatabase: DieselPriceRecord[],
-  zoneMappings: ZoneMappingRule[],
+  rateCards: { [key in StandardTruckType]?: RateCardTable } = {},
+  dieselDatabase: DieselPriceRecord[] = [],
+  zoneMappings: ZoneMappingRule[] = [],
   manualBracketKey?: string,
   customRatesMap?: { [tripId: string]: number },
   quotations: QuotationSchema[] = [],
@@ -713,12 +713,11 @@ export function processBillingTrips(
   customerFuelCycles: CustomerFuelCycle[] = [],
   customerRateConfigs: CustomerRateConfig[] = []
 ): CalculatedBillingTrip[] {
+  const safeRateCards = rateCards || {};
   const rateCardLocations = [
-    ...new Set([
-      ...rateCards['4W'].rows.map((r) => r.location),
-      ...rateCards['6W'].rows.map((r) => r.location),
-      ...rateCards['10W'].rows.map((r) => r.location),
-    ]),
+    ...new Set(
+      Object.values(safeRateCards).flatMap((rc) => (rc?.rows || []).map((r) => r.location))
+    ),
   ];
 
   const seenTripNos = new Set<string>();
@@ -807,6 +806,15 @@ export function processBillingTrips(
       baseTripRate = 0;
     } else if (customRatesMap && customRatesMap[raw.id] !== undefined) {
       baseTripRate = customRatesMap[raw.id];
+    } else if (
+      (raw.pickUpName?.includes('YBLC') ||
+       raw.consigneeShipper?.includes('YUSEN') ||
+       raw.id?.startsWith('roland-verified') ||
+       raw.consigneeShipper?.toLowerCase().includes('roland') ||
+       raw.pickUpName?.toLowerCase().includes('roland')) &&
+      raw.truckCharge && raw.truckCharge > 0
+    ) {
+      baseTripRate = raw.truckCharge;
     } else if (zoneLocationMatch) {
       // Priority 1: Destination Rate Card (ensures Ajitrade Si Maha Phot is 3,520฿)
       baseTripRate = calculateTripRate(

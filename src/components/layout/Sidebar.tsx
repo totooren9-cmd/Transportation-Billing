@@ -48,6 +48,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <LayoutDashboard className="w-5 h-5" />,
     },
     {
+      id: 'reports',
+      label: 'วิเคราะห์ค่าน้ำมัน (Fuel Analytics)',
+      icon: <BarChart3 className="w-5 h-5" />,
+    },
+    {
       id: 'billing',
       label: 'ตรวจสอบค่าน้ำมันประจำเที่ยว (Trip Fuel Report)',
       icon: <Receipt className="w-5 h-5" />,
@@ -71,11 +76,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'import',
       label: 'นำเข้าข้อมูลเที่ยวรถ & ราคาน้ำมัน (Import Trips)',
       icon: <Upload className="w-5 h-5" />,
-    },
-    {
-      id: 'reports',
-      label: 'วิเคราะห์ค่าน้ำมัน (Fuel Analytics)',
-      icon: <BarChart3 className="w-5 h-5" />,
     },
     {
       id: 'master',
