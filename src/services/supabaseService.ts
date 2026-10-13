@@ -8,6 +8,7 @@ import {
   ZoneMappingRule,
   QuotationSchema,
   FixedDieselCustomer,
+  CustomerRateConfig,
 } from '../types';
 
 /**
@@ -1010,6 +1011,65 @@ export async function saveFixedCustomersToSupabase(customers: FixedDieselCustome
 }
 
 /**
+ * Sync Master Data: Customer Rate Mode Configs (transport_customer_rate_config)
+ * 5 modes: Daily, Week, Monthly, Fix, Fuel Range
+ */
+export async function fetchCustomerRateConfigsFromSupabase(): Promise<CustomerRateConfig[] | null> {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await (supabase.from('transport_customer_rate_config') as any).select('*');
+    if (error || !data || data.length === 0) return null;
+    return (data as any[]).map((c: any) => ({
+      id: c.id,
+      branch: (c.branch || 'YNLC') as any,
+      customer_name: c.customer_name,
+      daily_rate: Boolean(c.daily_rate),
+      week_rate: Boolean(c.week_rate),
+      monthly_rate: Boolean(c.monthly_rate),
+      fix_rate: Boolean(c.fix_rate),
+      fuel_range: Boolean(c.fuel_range),
+      fix_fuel_price: c.fix_fuel_price ? Number(c.fix_fuel_price) : undefined,
+      fuel_range_start: c.fuel_range_start || undefined,
+      fuel_range_end: c.fuel_range_end || undefined,
+      fuel_range_note: c.fuel_range_note || undefined,
+      remark: c.remark || undefined,
+      is_active: c.is_active !== false,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCustomerRateConfigsToSupabase(configs: CustomerRateConfig[]): Promise<boolean> {
+  try {
+    const supabase = getSupabase();
+    const rows = configs.map((c) => ({
+      id: c.id,
+      branch: c.branch || 'YNLC',
+      customer_name: c.customer_name,
+      daily_rate: Boolean(c.daily_rate),
+      week_rate: Boolean(c.week_rate),
+      monthly_rate: Boolean(c.monthly_rate),
+      fix_rate: Boolean(c.fix_rate),
+      fuel_range: Boolean(c.fuel_range),
+      fix_fuel_price: c.fix_fuel_price ?? null,
+      fuel_range_start: c.fuel_range_start ?? null,
+      fuel_range_end: c.fuel_range_end ?? null,
+      fuel_range_note: c.fuel_range_note ?? null,
+      remark: c.remark ?? null,
+      is_active: c.is_active !== false,
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await (supabase.from('transport_customer_rate_config') as any).upsert(rows, { onConflict: 'branch,customer_name' });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Full Sync Push: Pushes all local state into Supabase
  */
 export async function fullSyncPushToSupabase(params: {
@@ -1056,14 +1116,16 @@ export async function fullSyncPullFromSupabase(): Promise<{
   zoneMappings: ZoneMappingRule[] | null;
   quotations: QuotationSchema[] | null;
   fixedCustomers: FixedDieselCustomer[] | null;
+  customerRateConfigs: CustomerRateConfig[] | null;
 }> {
-  const [tripsRes, diesel, rateCards, zoneMappings, quotations, fixedCustomers] = await Promise.all([
+  const [tripsRes, diesel, rateCards, zoneMappings, quotations, fixedCustomers, customerRateConfigs] = await Promise.all([
     fetchTripsFromSupabase(),
     fetchDieselPricesFromSupabase(),
     fetchRateCardsFromSupabase(),
     fetchZoneMappingsFromSupabase(),
     fetchQuotationsFromSupabase(),
     fetchFixedCustomersFromSupabase(),
+    fetchCustomerRateConfigsFromSupabase(),
   ]);
 
   return {
@@ -1073,6 +1135,7 @@ export async function fullSyncPullFromSupabase(): Promise<{
     zoneMappings: zoneMappings,
     quotations: quotations,
     fixedCustomers: fixedCustomers,
+    customerRateConfigs: customerRateConfigs,
   };
 }
 

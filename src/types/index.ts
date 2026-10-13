@@ -110,6 +110,34 @@ export interface CustomerFuelCycle {
   updatedAt?: string;
 }
 
+/**
+ * Customer Fuel Rate Mode Configuration (transport_customer_rate_config)
+ * รองรับ 5 โหมด:
+ * 1. daily_rate: ใช้น้ำมันวันนั้น (Issue Date)
+ * 2. week_rate: น้ำมันเฉลี่ยรายสัปดาห์
+ * 3. monthly_rate: น้ำมันเฉลี่ยรายเดือน (1-30) หรือเดือนก่อนหน้า
+ * 4. fix_rate: ราคาคงที่ตามสัญญา (fix_fuel_price)
+ * 5. fuel_range: ราคาตามช่วงวันที่กำหนด (fuel_range_start - fuel_range_end)
+ */
+export interface CustomerRateConfig {
+  id: string;
+  branch: 'YNLC' | 'YBLC' | 'นวนคร' | 'บางบ่อ' | 'ทั้งหมด';
+  customer_name: string;
+  daily_rate: boolean;
+  week_rate: boolean;
+  monthly_rate: boolean;
+  fix_rate: boolean;
+  fuel_range: boolean;
+  fix_fuel_price?: number;
+  fuel_range_start?: string;
+  fuel_range_end?: string;
+  fuel_range_note?: string;
+  remark?: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface QuotationTruckRate {
   baseRate: number;
   fuelSurcharge: number;
@@ -224,6 +252,7 @@ export interface CalculatedBillingTrip {
   baseTripRate: number; // Base rate from quotation / rate card
   fuelSurcharge: number; // Fuel surcharge component
   dropFee: number; // ค่าดรอปสินค้า
+  consoleFee: number; // ค่าคอนโซล (Consold fee)
   waitingFee: number; // ค่ารอโหลด
   tollFee: number; // ค่าทางด่วน / มอเตอร์เวย์
   porterFee: number; // ค่า Porter ขนถ่าย
@@ -249,7 +278,7 @@ export interface CalculatedBillingTrip {
   cancelledTripsInGTT: number;
   missingPriceTrips: number;
   dieselRate: number | null;
-  dieselMethod: 'monthly_avg' | 'fixed_contract' | 'daily_spot' | 'cycle_21_20';
+  dieselMethod: 'monthly_avg' | 'fixed_contract' | 'daily_spot' | 'cycle_21_20' | 'weekly_avg' | 'previous_month_avg';
   fuelCyclePeriod?: string;
   fuelCycleRule?: string;
   reviewStatus: ReviewStatus;

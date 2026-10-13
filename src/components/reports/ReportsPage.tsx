@@ -9,13 +9,20 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CalculatedBillingTrip } from '../../types';
+import { RolandPivotReportTab } from './RolandPivotReportTab';
 
 interface ReportsPageProps {
   trips: CalculatedBillingTrip[];
+  onLoadRolandTrips?: () => void;
+  onNavigateToBilling?: () => void;
 }
 
-export const ReportsPage: React.FC<ReportsPageProps> = ({ trips }) => {
-  const [reportTab, setReportTab] = useState<'monthly' | 'truck' | 'company'>('monthly');
+export const ReportsPage: React.FC<ReportsPageProps> = ({
+  trips,
+  onLoadRolandTrips,
+  onNavigateToBilling,
+}) => {
+  const [reportTab, setReportTab] = useState<'monthly' | 'truck' | 'company' | 'roland-pivot'>('roland-pivot');
   const [filterSearch, setFilterSearch] = useState('');
 
   // 1. Monthly Report Data
@@ -260,7 +267,21 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ trips }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 dark:border-slate-700 text-xs font-semibold">
+      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-700 text-xs font-semibold gap-1">
+        <button
+          onClick={() => setReportTab('roland-pivot')}
+          className={`pb-3 px-5 border-b-2 transition-all flex items-center gap-2 ${
+            reportTab === 'roland-pivot'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold">
+            FINAL
+          </span>
+          <span>ROLAND Pivot Table (167 เที่ยว / 640,180 ฿)</span>
+        </button>
+
         <button
           onClick={() => setReportTab('monthly')}
           className={`pb-3 px-5 border-b-2 transition-all flex items-center gap-2 ${
@@ -298,8 +319,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ trips }) => {
         </button>
       </div>
 
+      {/* ROLAND Pivot Table Content */}
+      {reportTab === 'roland-pivot' && (
+        <RolandPivotReportTab
+          onLoadRolandTrips={onLoadRolandTrips}
+          onNavigateToBilling={onNavigateToBilling}
+        />
+      )}
+
       {/* Search Filter for truck / company */}
-      {reportTab !== 'monthly' && (
+      {reportTab !== 'monthly' && reportTab !== 'roland-pivot' && (
         <div className="max-w-xs">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />

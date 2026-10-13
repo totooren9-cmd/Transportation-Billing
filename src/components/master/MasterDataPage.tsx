@@ -37,12 +37,14 @@ import {
   TruckTypeMappingRule,
   FeeMasterItem,
   ConditionRule,
+  CustomerRateConfig,
 } from '../../types';
 import { fetchLiveOilPrices, LiveOilProduct } from '../../services/pttService';
 import { QuotationUploadModal } from '../quotation/QuotationUploadModal';
 import { TruckTypeMappingTab } from './TruckTypeMappingTab';
 import { FeeMasterTab } from './FeeMasterTab';
 import { ConditionRuleTab } from './ConditionRuleTab';
+import { CustomerRateConfigTab } from './CustomerRateConfigTab';
 import {
   INITIAL_TRUCK_TYPE_MAPPINGS,
   INITIAL_FEE_MASTER_ITEMS,
@@ -83,7 +85,9 @@ interface MasterDataPageProps {
   onUpdateFeeMasterItems?: (items: FeeMasterItem[]) => void;
   conditionRules?: ConditionRule[];
   onUpdateConditionRules?: (rules: ConditionRule[]) => void;
-  initialTab?: 'diesel' | 'rateCard' | 'zone' | 'truckType' | 'feeMaster' | 'conditionRule' | 'quotation' | 'fixedContract';
+  customerRateConfigs?: CustomerRateConfig[];
+  onUpdateCustomerRateConfigs?: (configs: CustomerRateConfig[]) => void;
+  initialTab?: 'diesel' | 'rateCard' | 'zone' | 'truckType' | 'feeMaster' | 'conditionRule' | 'quotation' | 'fixedContract' | 'customerRateModes';
 }
 
 export const MasterDataPage: React.FC<MasterDataPageProps> = ({
@@ -101,6 +105,8 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
   onUpdateFixedCustomers,
   customerFuelCycles = [],
   onUpdateCustomerFuelCycles,
+  customerRateConfigs = [],
+  onUpdateCustomerRateConfigs,
   truckTypeMappings,
   onUpdateTruckTypeMappings,
   feeMasterItems,
@@ -110,7 +116,7 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
   initialTab,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'diesel' | 'rateCard' | 'zone' | 'truckType' | 'feeMaster' | 'conditionRule' | 'quotation' | 'fixedContract'
+    'diesel' | 'rateCard' | 'zone' | 'truckType' | 'feeMaster' | 'conditionRule' | 'quotation' | 'fixedContract' | 'customerRateModes'
   >(initialTab || 'diesel');
 
   // Fixed Diesel Contract Modal & Search states
@@ -668,6 +674,18 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
         >
           <Building2 className="w-4 h-4" />
           <span>เรทคงที่ ({fixedCustomers.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('customerRateModes')}
+          className={`pb-3 px-4 border-b-2 transition-all flex items-center gap-1.5 ${
+            activeTab === 'customerRateModes'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          <Fuel className="w-4 h-4 text-amber-500" />
+          <span>⚡ โหมดเรทน้ำมัน 5 โหมด & บางบ่อ ({customerRateConfigs.length})</span>
         </button>
       </div>
 
@@ -1913,6 +1931,15 @@ export const MasterDataPage: React.FC<MasterDataPageProps> = ({
         <ConditionRuleTab
           conditions={currentConditions}
           onUpdateConditions={handleUpdateConditions}
+        />
+      )}
+
+      {/* TAB: CUSTOMER RATE MODES & BANG BO TERMS (5 MODES) */}
+      {activeTab === 'customerRateModes' && (
+        <CustomerRateConfigTab
+          customerRateConfigs={customerRateConfigs}
+          onUpdateCustomerRateConfigs={onUpdateCustomerRateConfigs || (() => {})}
+          dieselPrices={dieselPrices}
         />
       )}
 

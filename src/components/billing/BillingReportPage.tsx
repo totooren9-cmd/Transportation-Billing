@@ -40,6 +40,7 @@ import {
   CustomerFuelCycle,
   FixedDieselCustomer,
   DieselPriceRecord,
+  CustomerRateConfig,
 } from '../../types';
 import { exportBillingReportExcel, downloadRawData69TemplateExcel } from '../../services/excelService';
 import { computeBillingSummary } from '../../services/billingCalculator';
@@ -75,6 +76,8 @@ interface BillingReportPageProps {
   onUpdateFuelCycles?: (cycles: CustomerFuelCycle[]) => void;
   fixedCustomers?: FixedDieselCustomer[];
   onUpdateFixedCustomers?: (customers: FixedDieselCustomer[]) => void;
+  customerRateConfigs?: CustomerRateConfig[];
+  onUpdateCustomerRateConfigs?: (configs: CustomerRateConfig[]) => void;
   dieselPrices?: DieselPriceRecord[];
 }
 
@@ -106,6 +109,8 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   onUpdateFuelCycles = () => {},
   fixedCustomers = [],
   onUpdateFixedCustomers = () => {},
+  customerRateConfigs = [],
+  onUpdateCustomerRateConfigs,
   dieselPrices = [],
 }) => {
   // Checkbox selection state for Bulk Operations
@@ -1880,7 +1885,12 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                 <th className="py-2.5 px-3 text-right font-bold text-amber-600 dark:text-amber-400">
                   ค่าน้ำมัน (คอลัมน์ I)
                 </th>
-                <th className="py-2.5 px-3 text-right">ค่าดรอป (Drop)</th>
+                <th className="py-2.5 px-3 text-right text-indigo-600 dark:text-indigo-400 font-semibold">
+                  ค่าดรอป (Drop)
+                </th>
+                <th className="py-2.5 px-3 text-right text-teal-600 dark:text-teal-400 font-semibold">
+                  ค่าคอนโซล (Consold)
+                </th>
                 <th className="py-2.5 px-3 text-right">ค่ารอ (Wait)</th>
                 <th className="py-2.5 px-3 text-right">ทางด่วน (Toll)</th>
                 <th className="py-2.5 px-3 text-right">Porter (คนยก)</th>
@@ -1902,7 +1912,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60 text-slate-700 dark:text-slate-300">
               {paginatedTrips.length === 0 ? (
                 <tr>
-                  <td colSpan={24} className="py-12 text-center">
+                  <td colSpan={25} className="py-12 text-center">
                     {trips.length === 0 ? (
                       <div className="max-w-md mx-auto space-y-3">
                         <div className="w-12 h-12 mx-auto rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
@@ -2078,7 +2088,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                             <span>
                               {trip.baseTripRate > 0
                                 ? trip.baseTripRate.toLocaleString('th-TH', { minimumFractionDigits: 2 })
-                                : '0.00'}
+                                : <span className="text-slate-400 font-normal italic">(เว้นว่าง/รอระบุ)</span>}
                             </span>
                             <Edit2 className="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </span>
@@ -2107,7 +2117,24 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
 
                       {/* Drop Fee */}
                       <td className="py-2 px-3 text-right font-mono">
-                        {trip.dropFee > 0 ? trip.dropFee.toLocaleString() : '-'}
+                        {trip.dropFee > 0 ? (
+                          <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                            ฿{trip.dropFee.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+
+                      {/* Consold (Console Fee) */}
+                      <td className="py-2 px-3 text-right font-mono">
+                        {trip.consoleFee > 0 ? (
+                          <span className="font-semibold text-teal-600 dark:text-teal-400">
+                            ฿{trip.consoleFee.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
                       </td>
 
                       {/* Waiting Fee */}
@@ -2459,6 +2486,8 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
           onUpdateFuelCycles={onUpdateFuelCycles}
           fixedCustomers={fixedCustomers}
           onUpdateFixedCustomers={onUpdateFixedCustomers}
+          customerRateConfigs={customerRateConfigs}
+          onUpdateCustomerRateConfigs={onUpdateCustomerRateConfigs}
           dieselPrices={dieselPrices}
           companyOptions={companyOptions}
         />

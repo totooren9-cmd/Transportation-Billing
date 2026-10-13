@@ -294,6 +294,38 @@ CREATE INDEX IF NOT EXISTS idx_raw_data_job_no ON public.raw_data(job_no);
 CREATE INDEX IF NOT EXISTS idx_raw_data_trip_no ON public.raw_data(trip_no);
 CREATE INDEX IF NOT EXISTS idx_raw_data_issue_date ON public.raw_data(issue_date);
 
+-- 4) ตาราง transport_customer_rate_config (ตารางตั้งค่าโหมดคิดเรทน้ำมันรายลูกค้า 5 โหมด)
+CREATE TABLE IF NOT EXISTS public.transport_customer_rate_config (
+  id               UUID         DEFAULT gen_random_uuid() PRIMARY KEY,
+  branch           TEXT         NOT NULL DEFAULT 'YNLC',              -- 'YNLC' หรือ 'YBLC'
+  customer_name    TEXT         NOT NULL,                             -- ชื่อบริษัท
+  daily_rate       BOOLEAN      DEFAULT false,
+  week_rate        BOOLEAN      DEFAULT false,
+  monthly_rate     BOOLEAN      DEFAULT false,
+  fix_rate         BOOLEAN      DEFAULT false,
+  fuel_range       BOOLEAN      DEFAULT false,
+  
+  -- สำหรับ Fix Rate
+  fix_fuel_price   NUMERIC(6,2),                                      -- ราคาน้ำมันคงที่ (บาท/ลิตร)
+  
+  -- สำหรับ Fuel Range
+  fuel_range_start DATE,                                              -- เช่น 2026-09-25
+  fuel_range_end   DATE,                                              -- เช่น 2026-10-26
+  fuel_range_note  TEXT,                                              -- "25/9/26-26/10/26"
+  
+  -- หมายเหตุ
+  remark           TEXT,
+  is_active        BOOLEAN      DEFAULT true,
+  created_at       TIMESTAMPTZ  DEFAULT timezone('utc'::text, now()),
+  updated_at       TIMESTAMPTZ  DEFAULT timezone('utc'::text, now()),
+  
+  CONSTRAINT transport_customer_rate_config_unique 
+    UNIQUE (branch, customer_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_config_branch 
+  ON public.transport_customer_rate_config (branch, is_active);
+
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- Allow Anon / Authenticated Users full SELECT, INSERT, UPDATE, DELETE
@@ -308,6 +340,7 @@ ALTER TABLE public.transport_custom_rates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rate_cards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fuel_prices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.raw_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transport_customer_rate_config ENABLE ROW LEVEL SECURITY;
 
 -- 1. transport_trips policies
 DROP POLICY IF EXISTS "Anon full access to transport_trips" ON public.transport_trips;
@@ -379,6 +412,13 @@ CREATE POLICY "Anon full access to raw_data" ON public.raw_data
     USING (true)
     WITH CHECK (true);
 
+-- 11. transport_customer_rate_config policies
+DROP POLICY IF EXISTS "Anon full access to transport_customer_rate_config" ON public.transport_customer_rate_config;
+CREATE POLICY "Anon full access to transport_customer_rate_config" ON public.transport_customer_rate_config
+    FOR ALL TO anon, authenticated
+    USING (true)
+    WITH CHECK (true);
+
 -- Realtime publication (Optional: enables live sync between multiple tabs)
 DO $$
 BEGIN
@@ -388,6 +428,7 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.transport_zone_mappings;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.transport_quotations;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.transport_fixed_customers;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.transport_customer_rate_config;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.rate_cards;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.fuel_prices;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.raw_data;

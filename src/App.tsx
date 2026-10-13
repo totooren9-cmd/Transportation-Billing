@@ -18,6 +18,7 @@ import {
   INITIAL_QUOTATIONS,
   INITIAL_FIXED_DIESEL_CUSTOMERS,
   INITIAL_CUSTOMER_FUEL_CYCLES,
+  INITIAL_CUSTOMER_RATE_CONFIGS,
   STANDARD_20_TRIPS,
 } from './data/seedData';
 import {
@@ -29,6 +30,7 @@ import {
   QuotationSchema,
   FixedDieselCustomer,
   CustomerFuelCycle,
+  CustomerRateConfig,
 } from './types';
 import {
   processBillingTrips,
@@ -97,6 +99,7 @@ const STORAGE_KEYS = {
   QUOTATIONS: 'transport_billing_quotations_v1',
   FIXED_CUSTOMERS: 'transport_billing_fixed_customers_v1',
   FUEL_CYCLES: 'transport_billing_fuel_cycles_v1',
+  CUSTOMER_RATE_CONFIGS: 'transport_billing_customer_rate_configs_v1',
 };
 
 export default function App() {
@@ -231,6 +234,21 @@ export default function App() {
     return INITIAL_CUSTOMER_FUEL_CYCLES;
   });
 
+  const [customerRateConfigs, setCustomerRateConfigs] = useState<CustomerRateConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CUSTOMER_RATE_CONFIGS);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_CUSTOMER_RATE_CONFIGS;
+  });
+
+  const handleUpdateCustomerRateConfigs = (newConfigs: CustomerRateConfig[]) => {
+    setCustomerRateConfigs(newConfigs);
+    safeLocalStorageSet(STORAGE_KEYS.CUSTOMER_RATE_CONFIGS, JSON.stringify(newConfigs));
+  };
+
   const [dieselMethod, setDieselMethod] = useState<'monthly_avg' | 'daily_spot'>('monthly_avg');
   const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
 
@@ -350,6 +368,9 @@ export default function App() {
       }
       if (pulled.rateCards && Object.keys(pulled.rateCards).length > 0) {
         setRateCards((prev) => ({ ...prev, ...pulled.rateCards }));
+      }
+      if (pulled.customerRateConfigs && pulled.customerRateConfigs.length > 0) {
+        setCustomerRateConfigs(pulled.customerRateConfigs);
       }
 
       setDbLoadStatus(null);
@@ -680,9 +701,10 @@ export default function App() {
       quotations,
       fixedCustomers,
       dieselMethod,
-      customerFuelCycles
+      customerFuelCycles,
+      customerRateConfigs
     );
-  }, [trips, rateCards, dieselPrices, zoneMappings, selectedBracket, customRatesMap, quotations, fixedCustomers, dieselMethod, customerFuelCycles]);
+  }, [trips, rateCards, dieselPrices, zoneMappings, selectedBracket, customRatesMap, quotations, fixedCustomers, dieselMethod, customerFuelCycles, customerRateConfigs]);
 
   const billingSummary = useMemo(() => {
     return computeBillingSummary(calculatedTrips);
@@ -882,6 +904,8 @@ export default function App() {
               onUpdateFuelCycles={setCustomerFuelCycles}
               fixedCustomers={fixedCustomers}
               onUpdateFixedCustomers={setFixedCustomers}
+              customerRateConfigs={customerRateConfigs}
+              onUpdateCustomerRateConfigs={handleUpdateCustomerRateConfigs}
               dieselPrices={dieselPrices}
             />
           )}
@@ -930,6 +954,8 @@ export default function App() {
               onUpdateFixedCustomers={(newF) => setFixedCustomers(newF)}
               customerFuelCycles={customerFuelCycles}
               onUpdateCustomerFuelCycles={setCustomerFuelCycles}
+              customerRateConfigs={customerRateConfigs}
+              onUpdateCustomerRateConfigs={handleUpdateCustomerRateConfigs}
               initialTab="quotation"
             />
           )}
@@ -970,6 +996,8 @@ export default function App() {
               onUpdateFixedCustomers={(newF) => setFixedCustomers(newF)}
               customerFuelCycles={customerFuelCycles}
               onUpdateCustomerFuelCycles={setCustomerFuelCycles}
+              customerRateConfigs={customerRateConfigs}
+              onUpdateCustomerRateConfigs={handleUpdateCustomerRateConfigs}
             />
           )}
         </main>

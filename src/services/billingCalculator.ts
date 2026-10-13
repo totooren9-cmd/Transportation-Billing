@@ -13,6 +13,7 @@ import {
   FixedDieselCustomer,
   QuotationSchema,
   CustomerFuelCycle,
+  CustomerRateConfig,
   ODType,
   DiffStatus,
 } from '../types';
@@ -315,27 +316,162 @@ export function calculateCycleAverageDiesel(
 }
 
 /**
- * Determine Effective Diesel Rate:
- * 1. Checks if customer is a "Fixed Diesel Rate" customer (e.g., SIEMENS = 38.00 fixed contract rate)
- * 2. Checks if customer has a specific Fuel Cycle (e.g. Elematec (Thailand) = รอบ 21 ชน 20 เช่น 21/9/2026 - 20/10/2026)
- * 3. Uses Monthly Average (PTT Diesel Database average for the entire month e.g. 40.69)
- * 4. Fallback: Daily spot price
+ * Calculate weekly average diesel price for the week of issueDate (Monday to Sunday)
+ */
+export function calculateWeeklyAverageDiesel(
+  issueDateStr: string,
+  dieselDatabase: DieselPriceRecord[]
+): number | null {
+  const p = parseDateMonthYear(issueDateStr);
+  if (!p) return null;
+  const targetDate = new Date(p.year, p.month - 1, p.day);
+  const dayOfWeek = targetDate.getDay(); // 0 is Sunday, 1 is Monday ...
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(targetDate);
+  monday.setDate(targetDate.getDate() + diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  return calculateCycleAverageDiesel(monday, sunday, dieselDatabase);
+}
+
+/**
+ * Calculate previous month average diesel price (Bang Bo / YBLC condition 2:
+ * "The transportation rate of this month shall be adjusted monthly base on the average BKK's diesel B7 price of previous month")
+ */
+export function calculatePreviousMonthAverageDiesel(
+  month: number,
+  year: number,
+  dieselDatabase: DieselPriceRecord[]
+): number | null {
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return calculateMonthlyAverageDiesel(prevMonth, prevYear, dieselDatabase);
+}
+
+/**
+ * Determine Effective Diesel Rate per Customer Config (5 Modes)
+ * 1. Daily Rate: ใช้น้ำมันวันนั้น (Issue Date) - e.g. ROLAND, HITACHI HIGH-TECH
+ * 2. Week Rate: น้ำมันเฉลี่ยรายสัปดาห์ (Mon-Sun) - e.g. NICHICON, Chukoh Chemical
+ * 3. Monthly Rate: น้ำมันเฉลี่ยรายเดือน (1-30) หรือเดือนก่อนหน้า (Bang Bo YBLC condition 2) - e.g. MACNICA, PANASONIC, HITACHI ASIA
+ * 4. Fix Rate: ราคาคงที่ตามสัญญา - e.g. SIEMENS, AISAN, DAITRON
+ * 5. Fuel Range: ราคาตามช่วงวันที่กำหนด เช่น 25/9/26-26/10/26 หรือ 21/9-20/10 - e.g. SENKO, ELEMATEC
  */
 export function getEffectiveDieselRate(
   trip: RawTripData,
   dieselDatabase: DieselPriceRecord[],
   fixedCustomers: FixedDieselCustomer[] = [],
   method: 'monthly_avg' | 'daily_spot' = 'monthly_avg',
-  customerFuelCycles: CustomerFuelCycle[] = []
+  customerFuelCycles: CustomerFuelCycle[] = [],
+  customerRateConfigs: CustomerRateConfig[] = [],
+  branchName?: string
 ): {
   rate: number | null;
-  method: 'monthly_avg' | 'fixed_contract' | 'daily_spot' | 'cycle_21_20';
+  method: 'monthly_avg' | 'fixed_contract' | 'daily_spot' | 'cycle_21_20' | 'weekly_avg' | 'previous_month_avg';
   period?: string;
   ruleName?: string;
 } {
   const shipperName = (trip.consigneeShipper || '').toUpperCase().trim();
+  const branch = branchName || detectBranch(trip);
+  const isBangbo = branch === 'บางบ่อ' || branch === 'YBLC';
 
-  // 1. Check Exception: Fixed Diesel Rate Customer (e.g. Siemens = 38.00 THB/L)
+  // 1. Check Customer Rate Config (Highest priority per customer setup)
+  const matchedConfig = customerRateConfigs.find(
+    (c) =>
+      c.is_active !== false &&
+      (shipperName.includes(c.customer_name.toUpperCase()) || c.customer_name.toUpperCase().includes(shipperName)) &&
+      (!c.branch || c.branch === 'ทั้งหมด' || (isBangbo ? (c.branch === 'YBLC' || c.branch === 'บางบ่อ') : (c.branch === 'YNLC' || c.branch === 'นวนคร')))
+  ) || customerRateConfigs.find(
+    (c) =>
+      c.is_active !== false &&
+      (shipperName.includes(c.customer_name.toUpperCase()) || c.customer_name.toUpperCase().includes(shipperName))
+  );
+
+  if (matchedConfig) {
+    // Mode 1: Daily Rate
+    if (matchedConfig.daily_rate) {
+      const normTarget = normalizeDate(trip.issueDate);
+      const found = dieselDatabase.find((d) => normalizeDate(d.date) === normTarget);
+      if (found) {
+        return { rate: found.price, method: 'daily_spot', period: found.date, ruleName: `Daily Rate (${matchedConfig.customer_name})` };
+      }
+      if (dieselDatabase.length > 0) {
+        return { rate: dieselDatabase[0].price, method: 'daily_spot', period: dieselDatabase[0].date, ruleName: `Daily Rate (${matchedConfig.customer_name})` };
+      }
+    }
+
+    // Mode 2: Week Rate
+    if (matchedConfig.week_rate) {
+      const weekAvg = calculateWeeklyAverageDiesel(trip.issueDate, dieselDatabase);
+      if (weekAvg !== null) {
+        return { rate: weekAvg, method: 'weekly_avg', period: 'เฉลี่ยสัปดาห์ (จ-อา)', ruleName: `Week Rate (${matchedConfig.customer_name})` };
+      }
+    }
+
+    // Mode 4: Fix Rate
+    if (matchedConfig.fix_rate && matchedConfig.fix_fuel_price && matchedConfig.fix_fuel_price > 0) {
+      return {
+        rate: matchedConfig.fix_fuel_price,
+        method: 'fixed_contract',
+        period: 'สัญญาเรทคงที่',
+        ruleName: `Fix Rate Contract (฿${matchedConfig.fix_fuel_price.toFixed(2)})`,
+      };
+    }
+
+    // Mode 5: Fuel Range
+    if (matchedConfig.fuel_range) {
+      if (matchedConfig.fuel_range_start && matchedConfig.fuel_range_end) {
+        const startParts = matchedConfig.fuel_range_start.split('-');
+        const endParts = matchedConfig.fuel_range_end.split('-');
+        if (startParts.length === 3 && endParts.length === 3) {
+          const sDate = new Date(parseInt(startParts[0], 10), parseInt(startParts[1], 10) - 1, parseInt(startParts[2], 10));
+          const eDate = new Date(parseInt(endParts[0], 10), parseInt(endParts[1], 10) - 1, parseInt(endParts[2], 10), 23, 59, 59);
+          const rangeAvg = calculateCycleAverageDiesel(sDate, eDate, dieselDatabase);
+          if (rangeAvg !== null) {
+            return {
+              rate: rangeAvg,
+              method: 'cycle_21_20',
+              period: matchedConfig.fuel_range_note || `${matchedConfig.fuel_range_start} - ${matchedConfig.fuel_range_end}`,
+              ruleName: `Fuel Range (${matchedConfig.fuel_range_note || 'ช่วงวันที่'})`,
+            };
+          }
+        }
+      }
+    }
+
+    // Mode 3: Monthly Rate
+    if (matchedConfig.monthly_rate) {
+      const my = parseDateMonthYear(trip.issueDate);
+      if (my) {
+        if (isBangbo) {
+          // Bang Bo condition 2: Previous Month Avg
+          const prevAvg = calculatePreviousMonthAverageDiesel(my.month, my.year, dieselDatabase);
+          if (prevAvg !== null) {
+            return {
+              rate: prevAvg,
+              method: 'previous_month_avg',
+              period: `เฉลี่ยเดือนก่อนหน้า BKK B7 (บางบ่อ)`,
+              ruleName: 'Bang Bo Previous Month Avg',
+            };
+          }
+        }
+        const monthlyAvg = calculateMonthlyAverageDiesel(my.month, my.year, dieselDatabase);
+        if (monthlyAvg !== null) {
+          return {
+            rate: monthlyAvg,
+            method: 'monthly_avg',
+            period: `1/${my.month}/${my.year} - 30/${my.month}/${my.year}`,
+            ruleName: `Monthly Rate (${matchedConfig.customer_name})`,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Check Fixed Diesel Rate Customer (e.g. Siemens = 38.00 THB/L)
   const fixedMatch = fixedCustomers.find(
     (c) => c.active && (shipperName.includes(c.customerName.toUpperCase()) || c.customerName.toUpperCase().includes(shipperName))
   );
@@ -349,7 +485,7 @@ export function getEffectiveDieselRate(
     };
   }
 
-  // 2. Check Customer Fuel Cycle (e.g. Elematec (Thailand) = รอบ 21 ชน 20)
+  // 3. Check Customer Fuel Cycle (e.g. Elematec = รอบ 21 ชน 20)
   const isElematec = shipperName.includes('ELEMATEC');
   const matchedCycle = customerFuelCycles.find(
     (c) => c.active && (shipperName.includes(c.customerName.toUpperCase()) || c.customerName.toUpperCase().includes(shipperName))
@@ -392,10 +528,23 @@ export function getEffectiveDieselRate(
     }
   }
 
-  // 3. Monthly Average method (Standard requirement)
+  // 4. Monthly Average method (Standard requirement)
   if (method === 'monthly_avg') {
     const my = parseDateMonthYear(trip.issueDate);
     if (my) {
+      if (isBangbo) {
+        // Bang Bo condition 2: Previous Month Average BKK Diesel B7
+        const prevAvg = calculatePreviousMonthAverageDiesel(my.month, my.year, dieselDatabase);
+        if (prevAvg !== null) {
+          return {
+            rate: prevAvg,
+            method: 'previous_month_avg',
+            period: `เฉลี่ยเดือนก่อนหน้า BKK B7 (บางบ่อ)`,
+            ruleName: 'Bang Bo Prev Month Avg',
+          };
+        }
+      }
+
       const monthlyAvg = calculateMonthlyAverageDiesel(my.month, my.year, dieselDatabase);
       if (monthlyAvg !== null) {
         return {
@@ -408,7 +557,7 @@ export function getEffectiveDieselRate(
     }
   }
 
-  // 4. Daily Spot price
+  // 5. Daily Spot price fallback
   const normTarget = normalizeDate(trip.issueDate);
   const found = dieselDatabase.find((d) => normalizeDate(d.date) === normTarget);
   if (found) {
@@ -469,9 +618,10 @@ export function calculateTripRate(
   }
 
   if (!row) {
-    if (standardType === '4W') return isSiMahaPhot ? 3520 : 1850;
-    if (standardType === '6W') return 2950;
-    return 4500;
+    if (isSiMahaPhot && standardType === '4W') return 3520;
+    // Don't inject arbitrary random numbers (1850, 2950, 4500) that make prices jump!
+    // Return 0 so it stays blank/clean for user to view or input
+    return 0;
   }
 
   let bracketKey = manualBracketKey;
@@ -493,6 +643,7 @@ export function calculateTripRate(
 
 /**
  * Match Quotation for a specific trip by Job/Trip No, or Consignee/Shipper and Branch
+ * รองรับ: ลูกค้า 1 รายสามารถมีใบเสนอราคาได้หลายๆ ใบ (Multiple Quotations per Customer)
  */
 export function findMatchingQuotation(
   trip: RawTripData,
@@ -519,21 +670,31 @@ export function findMatchingQuotation(
   }
 
   const shipper = (trip.consigneeShipper || '').toLowerCase().trim();
+  const p = parseDateMonthYear(trip.issueDate);
+  const tripDate = p ? `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}` : null;
 
-  // 2. Company & Branch match
-  return (
-    quotations.find((q) => {
-      const qCompany = q.companyName.toLowerCase().trim();
-      const matchCompany = shipper.includes(qCompany) || qCompany.includes(shipper);
-      const matchBranch = !q.branch || q.branch === 'ทั้งหมด' || q.branch === branch;
-      return matchCompany && matchBranch;
-    }) ||
-    quotations.find((q) => {
-      const qCompany = q.companyName.toLowerCase().trim();
-      return shipper.includes(qCompany) || qCompany.includes(shipper);
-    }) ||
-    null
-  );
+  // 2. Filter matching company
+  const matchingList = quotations.filter((q) => {
+    const qCompany = q.companyName.toLowerCase().trim();
+    return shipper.includes(qCompany) || qCompany.includes(shipper);
+  });
+
+  if (matchingList.length === 0) return null;
+
+  // 3. Match branch and date validity if multiple quotations exist
+  const branchAndDateMatch = matchingList.find((q) => {
+    const matchBranch = !q.branch || q.branch === 'ทั้งหมด' || q.branch === branch;
+    const matchDate =
+      !tripDate ||
+      ((!q.effectiveDate || tripDate >= q.effectiveDate) && (!q.expiryDate || tripDate <= q.expiryDate));
+    return matchBranch && matchDate;
+  });
+  if (branchAndDateMatch) return branchAndDateMatch;
+
+  const branchMatch = matchingList.find((q) => !q.branch || q.branch === 'ทั้งหมด' || q.branch === branch);
+  if (branchMatch) return branchMatch;
+
+  return matchingList[0];
 }
 
 /**
@@ -549,7 +710,8 @@ export function processBillingTrips(
   quotations: QuotationSchema[] = [],
   fixedCustomers: FixedDieselCustomer[] = [],
   dieselMethod: 'monthly_avg' | 'daily_spot' = 'monthly_avg',
-  customerFuelCycles: CustomerFuelCycle[] = []
+  customerFuelCycles: CustomerFuelCycle[] = [],
+  customerRateConfigs: CustomerRateConfig[] = []
 ): CalculatedBillingTrip[] {
   const rateCardLocations = [
     ...new Set([
@@ -607,13 +769,15 @@ export function processBillingTrips(
       }
     }
 
-    // Effective diesel rate (Monthly Average standard or fixed contract or 21-20 cycle)
+    // Effective diesel rate (Supports 5 modes: Daily, Week, Monthly, Fix, Fuel Range)
     const effectiveDiesel = getEffectiveDieselRate(
       raw,
       dieselDatabase,
       fixedCustomers,
       dieselMethod,
-      customerFuelCycles
+      customerFuelCycles,
+      customerRateConfigs,
+      branch
     );
     const dieselRate = effectiveDiesel.rate;
     const dieselMethodUsed = effectiveDiesel.method;
@@ -709,10 +873,11 @@ export function processBillingTrips(
     const otFee = isCancelled ? 0 : (raw.otHours ? raw.otHours * (qFees.otFee || 0) : 0);
     const penaltyFee = isCancelled ? 0 : (raw.penaltyFee || 0);
 
-    const otherFees = dryIceFee + sealFee + consoleFee + otFee + penaltyFee;
+    // Dedicated consoleFee column (Consold)
+    const otherFees = dryIceFee + sealFee + otFee + penaltyFee;
 
     // Total Amount: Ajitrade Si Maha Phot runs at exactly 3,520 THB, and subsequent drops run at 500 THB!
-    const totalAmount = isCancelled ? 0 : baseTripRate + fuelSurcharge + dropFee + waitingFee + tollFee + porterFee + otherFees;
+    const totalAmount = isCancelled ? 0 : baseTripRate + fuelSurcharge + dropFee + consoleFee + waitingFee + tollFee + porterFee + otherFees;
 
     // Customer Quoted Rate / Expected Price
     let customerQuotedPrice = raw.customerQuotedRate || raw.truckCharge || 0;
@@ -744,7 +909,7 @@ export function processBillingTrips(
         ? 'ค่าคอนโซล วิ่งใกล้เคียงในจังหวัดเดียวกัน (+500 บาท)'
         : 'จุดส่งเพิ่มในวันเดียวกัน ทะเบียนซ้ำ (Multi-Drop +500 บาท)';
     } else if (!zoneLocationMatch || baseTripRate === 0) {
-      diffReason = 'ไม่ match zone / ไม่พบใน Rate Card';
+      diffReason = 'ยังไม่มีข้อมูลเรทสัญญา / ช่องว่างรอระบุราคา';
     } else if (dieselRate === null) {
       diffReason = 'ไม่มีราคาน้ำมัน (Missing Diesel Rate)';
     } else if (diffStatus !== 'Match') {
@@ -752,6 +917,10 @@ export function processBillingTrips(
         diffReason = 'เรทรถซับ OD ต่างจากเรทมาตรฐาน';
       } else if (dieselMethodUsed === 'fixed_contract') {
         diffReason = `ใช้เรทสัญญาคงที่ (${dieselRate ? dieselRate.toFixed(2) : '38.00'} ฿/L)`;
+      } else if (dieselMethodUsed === 'weekly_avg') {
+        diffReason = `เรทน้ำมันเฉลี่ยรายสัปดาห์ (${dieselRate ? dieselRate.toFixed(2) : '-'} ฿/L)`;
+      } else if (dieselMethodUsed === 'previous_month_avg') {
+        diffReason = `เรทน้ำมันเฉลี่ยเดือนก่อนหน้า BKK B7 (${dieselRate ? dieselRate.toFixed(2) : '-'} ฿/L)`;
       } else if (dieselMethodUsed === 'cycle_21_20') {
         diffReason = `รอบค่าน้ำมัน ${effectiveDiesel.period || '21 ชน 20'} (${dieselRate ? dieselRate.toFixed(2) : '-'} ฿/L)`;
       } else if (tollFee > 0 || dropFee > 0 || consoleFee > 0 || waitingFee > 0) {
@@ -798,6 +967,7 @@ export function processBillingTrips(
       baseTripRate,
       fuelSurcharge,
       dropFee,
+      consoleFee,
       waitingFee,
       tollFee,
       porterFee,
