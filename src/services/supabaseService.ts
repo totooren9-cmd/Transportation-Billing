@@ -532,20 +532,56 @@ export async function saveTripsToSupabase(trips: RawTripData[]): Promise<{ count
 export const bulkUpsertTrips = saveTripsToSupabase;
 
 /**
- * Clear all trips in Supabase
+ * Clear ALL data in Supabase across all tables and reset system
  */
-export async function clearAllTripsInSupabase(): Promise<{ success: boolean; error: string | null }> {
+export async function clearAllSystemDataInSupabase(): Promise<{ success: boolean; error: string | null }> {
   try {
     const supabase = getSupabase();
-    // delete all with non-empty id
-    const { error } = await supabase.from('transport_trips').delete().neq('id', '___NEVER_MATCH___');
-    if (error) {
-      return { success: false, error: error.message };
+    const tables = [
+      'transport_trips',
+      'upload_history',
+      'transport_diesel_prices',
+      'transport_rate_cards',
+      'transport_zone_mappings',
+      'transport_quotations',
+      'transport_fixed_customers',
+      'transport_custom_rates',
+      'transport_fuel_rates',
+      'transport_trip_fuel',
+      'rate_cards',
+      'fuel_prices',
+      'raw_data',
+      'pv_trip_summary'
+    ];
+
+    for (const table of tables) {
+      try {
+        await supabase.from(table).delete().neq('id', '___NEVER_MATCH___');
+      } catch (e) {
+        try {
+          await supabase.from(table).delete().neq('date', '___NEVER_MATCH___');
+        } catch (e2) {
+          // ignore table errors
+        }
+      }
     }
+
+    try {
+      localStorage.clear();
+      indexedDB.deleteDatabase('TransportBillingDB_v1');
+    } catch {}
+
     return { success: true, error: null };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Failed to clear trips' };
+    return { success: false, error: err?.message || 'Failed to clear all system data' };
   }
+}
+
+/**
+ * Clear all trips and system data in Supabase
+ */
+export async function clearAllTripsInSupabase(): Promise<{ success: boolean; error: string | null }> {
+  return clearAllSystemDataInSupabase();
 }
 
 /**
@@ -1513,5 +1549,25 @@ export async function deleteRateCardRecord(idOrTruck: string, mode: 'soft' | 'ha
   ]);
   return res1?.success || res2?.success;
 }
+
+/**
+ * 8. Purge All Trips from Supabase (transport_trips, raw_data, transport_trip_fuel)
+ */
+export async function purgeAllTripsFromSupabase(): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const supabase = getSupabase();
+    await Promise.allSettled([
+      (supabase.from('transport_trips') as any).delete().neq('id', '___PURGE_ALL_SAFEGUARD___'),
+      (supabase.from('raw_data') as any).delete().neq('id', '___PURGE_ALL_SAFEGUARD___'),
+      (supabase.from('transport_trip_fuel') as any).delete().neq('id', '___PURGE_ALL_SAFEGUARD___'),
+      (supabase.from('transport_custom_rates') as any).delete().neq('trip_id', '___PURGE_ALL_SAFEGUARD___'),
+    ]);
+    return { success: true, error: null };
+  } catch (err: any) {
+    console.warn('purgeAllTripsFromSupabase error:', err);
+    return { success: false, error: err?.message || 'Purge failed' };
+  }
+}
+
 
 

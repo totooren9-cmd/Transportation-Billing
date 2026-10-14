@@ -254,7 +254,10 @@ export const ROLAND_FINAL_167_TRIPS: RolandTripRecord[] = [
 /**
  * 1. Generate Pivot Table by Truck_Type and Fuel_Ref_Price (Matches Image 2 exactly)
  */
-export function buildRolandPivotByTruckType(): {
+export function buildRolandPivotByTruckType(
+  branchFilter: string = 'ALL',
+  customerFilter: string = 'ALL'
+): {
   rows: RolandTruckPivotRow[];
   totalQty: number;
   totalTrip: number;
@@ -284,20 +287,32 @@ export function buildRolandPivotByTruckType(): {
   for (const tType of truckTypes) {
     const fuelList = fuelRatesByTruck[tType];
     for (const fuel of fuelList) {
-      const filtered = ROLAND_FINAL_167_TRIPS.filter(
-        (t) => t.truckType === tType && Math.abs(t.fuelRefPrice - fuel) < 0.001
-      );
+      const filtered = ROLAND_FINAL_167_TRIPS.filter((t) => {
+        const matchesTruck = t.truckType === tType && Math.abs(t.fuelRefPrice - fuel) < 0.001;
+        const matchesBranch =
+          branchFilter === 'ALL' ||
+          t.pickUpName.includes(branchFilter) ||
+          t.deliveryName.includes(branchFilter);
+        const matchesCustomer =
+          customerFilter === 'ALL' ||
+          t.pickUpName.includes(customerFilter) ||
+          t.deliveryName.includes(customerFilter);
+        return matchesTruck && matchesBranch && matchesCustomer;
+      });
+
       const qty = filtered.reduce((sum, t) => sum + t.totalQty, 0);
       const trip = filtered.length;
       const cost = filtered.reduce((sum, t) => sum + t.charterCost, 0);
 
-      rows.push({
-        truckType: tType,
-        fuelRefPrice: fuel,
-        totalQty: qty,
-        totalTrip: trip,
-        charterCost: cost,
-      });
+      if (trip > 0) {
+        rows.push({
+          truckType: tType,
+          fuelRefPrice: fuel,
+          totalQty: qty,
+          totalTrip: trip,
+          charterCost: cost,
+        });
+      }
 
       subtotals[tType].qty += qty;
       subtotals[tType].trip += trip;
@@ -321,7 +336,10 @@ export function buildRolandPivotByTruckType(): {
 /**
  * 2. Generate Pivot Table by Delivery Date (Matches Image 3 exactly)
  */
-export function buildRolandPivotByDate(): {
+export function buildRolandPivotByDate(
+  branchFilter: string = 'ALL',
+  customerFilter: string = 'ALL'
+): {
   rows: RolandDatePivotRow[];
   totalQty: number;
   totalTrip: number;
@@ -341,7 +359,19 @@ export function buildRolandPivotByDate(): {
   let grandCost = 0;
 
   for (const date of dateOrder) {
-    const list = ROLAND_FINAL_167_TRIPS.filter((t) => t.deliveryDate === date);
+    const list = ROLAND_FINAL_167_TRIPS.filter((t) => {
+      const matchesDate = t.deliveryDate === date;
+      const matchesBranch =
+        branchFilter === 'ALL' ||
+        t.pickUpName.includes(branchFilter) ||
+        t.deliveryName.includes(branchFilter);
+      const matchesCustomer =
+        customerFilter === 'ALL' ||
+        t.pickUpName.includes(customerFilter) ||
+        t.deliveryName.includes(customerFilter);
+      return matchesDate && matchesBranch && matchesCustomer;
+    });
+
     if (list.length === 0) continue;
     const qty = list.reduce((sum, t) => sum + t.totalQty, 0);
     const trip = list.length;
@@ -379,6 +409,7 @@ export function convertRolandToRawTrips(): RawTripData[] {
     issueDate: r.deliveryDate.replace(/-/g, '/'),
     jobNo: r.jobNo,
     tripNo: r.tripNo,
+    branch: 'บางบ่อ' as const,
     consigneeShipper: r.pickUpName.includes('YBLC') ? 'YUSEN LOGISTICS (THAILAND) BLC' : 'ROLAND DIGITAL GROUP (THAILAND) CO.,LTD',
     pickUpName: r.pickUpName,
     pickUpDistrict: 'บางบ่อ',

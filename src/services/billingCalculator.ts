@@ -29,35 +29,87 @@ export function normalizeTruckType(rawType: string): StandardTruckType {
 /**
  * Detect Branch: 'นวนคร' or 'บางบ่อ' based on trip properties
  */
-export function detectBranch(trip: RawTripData): string {
-  if (trip.branch && trip.branch.trim()) {
-    return trip.branch.trim();
+export function detectBranch(trip: RawTripData, forceDetect = false): string {
+  // 1. Origin text (Truck Site, Transport Site, BU, Pickup Name, Address, Province, District, Job No)
+  const originText = [
+    trip.truckSite,
+    trip.transportSite,
+    trip.businessUnit,
+    trip.pickUpName,
+    trip.pickUpAddress,
+    trip.pickUpProvince,
+    trip.pickUpDistrict,
+    trip.pickUpZone,
+    trip.jobNo,
+    trip.tripNo,
+  ].filter(Boolean).join(' ').toLowerCase();
+  
+  // Specific check on truck site and transport site (Highest Authority)
+  const siteOnly = [trip.truckSite, trip.transportSite, trip.businessUnit].filter(Boolean).join(' ').toLowerCase();
+  const isSiteBangbo = siteOnly.includes('blc') || siteOnly.includes('บางบ่อ') || siteOnly.includes('bbo') || siteOnly.includes('yblc');
+  const isSiteNavanakorn = siteOnly.includes('nlc') || siteOnly.includes('นวนคร') || siteOnly.includes('ynlc');
+
+  if (isSiteBangbo && !isSiteNavanakorn) return 'บางบ่อ';
+  if (isSiteNavanakorn && !isSiteBangbo) return 'นวนคร';
+
+  const isOriginBangbo =
+    originText.includes('บางบ่อ') ||
+    originText.includes('blc') ||
+    originText.includes('bbo') ||
+    originText.includes('bang bo') ||
+    originText.includes('bangbo') ||
+    originText.includes('สมุทรปราการ') ||
+    originText.includes('บางเสาธง') ||
+    originText.includes('บางพลี') ||
+    originText.includes('บางปู') ||
+    originText.includes('เทพารักษ์') ||
+    originText.includes('กิ่งแก้ว') ||
+    originText.includes('สุวรรณภูมิ') ||
+    originText.includes('suvarnabhumi') ||
+    originText.includes('1005') ||
+    originText.includes('yblc');
+
+  const isOriginNavanakorn =
+    originText.includes('นวนคร') ||
+    originText.includes('nlc') ||
+    originText.includes('navanakorn') ||
+    originText.includes('navanakhorn') ||
+    originText.includes('คลองหลวง') ||
+    originText.includes('ปทุมธานี') ||
+    originText.includes('คลองหนึ่ง') ||
+    originText.includes('1004') ||
+    originText.includes('ynlc');
+
+  if (isOriginBangbo && !isOriginNavanakorn) return 'บางบ่อ';
+  if (isOriginNavanakorn && !isOriginBangbo) return 'นวนคร';
+
+  // Specific customer affiliations (e.g. Roland operates out of Bang Bo / BLC)
+  const shipperText = [trip.consigneeShipper, trip.pickUpName, trip.deliveryName].filter(Boolean).join(' ').toLowerCase();
+  if (shipperText.includes('roland')) return 'บางบ่อ';
+
+  // Check pickUpProvince directly
+  const puProv = (trip.pickUpProvince || '').toLowerCase();
+  if (puProv.includes('สมุทรปราการ')) return 'บางบ่อ';
+  if (puProv.includes('ปทุมธานี')) return 'นวนคร';
+
+  const rawBranch = (trip.branch || '').trim();
+  // If forceDetect is false and explicit branch exists, use it
+  if (!forceDetect) {
+    if (rawBranch === 'BLC' || rawBranch === 'บางบ่อ') return 'บางบ่อ';
+    if (rawBranch === 'NLC' || rawBranch === 'นวนคร') return 'นวนคร';
+    if (rawBranch && rawBranch !== 'ALL' && rawBranch !== 'AUTO') return rawBranch;
   }
 
-  const combined = `${trip.truckSite || ''} ${trip.transportSite || ''} ${trip.pickUpName || ''} ${trip.pickUpAddress || ''} ${trip.pickUpProvince || ''} ${trip.pickUpDistrict || ''} ${trip.businessUnit || ''} ${trip.deliveryProvince || ''}`.toLowerCase();
-  
-  if (combined.includes('บางบ่อ') || combined.includes('blc') || combined.includes('bbo') || combined.includes('bang bo') || combined.includes('สมุทรปราการ')) {
+  // Delivery / destination fallback
+  const destText = [trip.deliveryAddress, trip.deliveryProvince, trip.deliveryDistrict].filter(Boolean).join(' ').toLowerCase();
+  if (destText.includes('บางบ่อ') || destText.includes('สมุทรปราการ') || destText.includes('บางเสาธง') || destText.includes('บางพลี')) {
     return 'บางบ่อ';
   }
-  if (combined.includes('อยุธยา') || combined.includes('ayutthaya') || combined.includes('hi-tech') || combined.includes('ไฮเทค') || combined.includes('บางปะอิน')) {
-    return 'อยุธยา';
-  }
-  if (combined.includes('แหลมฉบัง') || combined.includes('ชลบุรี') || combined.includes('chonburi') || combined.includes('laem chabang') || combined.includes('ระยอง')) {
-    return 'แหลมฉบัง';
-  }
-  if (combined.includes('นวนคร') || combined.includes('nlc') || combined.includes('คลองหลวง') || combined.includes('ปทุมธานี')) {
+  if (destText.includes('นวนคร') || destText.includes('ปทุมธานี') || destText.includes('คลองหลวง')) {
     return 'นวนคร';
   }
 
-  // Fallback distribution across multiple branches if not specified
-  const key = trip.jobNo || trip.tripNo || trip.id || '0';
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = (hash << 5) - hash + key.charCodeAt(i);
-    hash |= 0;
-  }
-  const branches = ['นวนคร', 'บางบ่อ', 'อยุธยา', 'แหลมฉบัง'];
-  return branches[Math.abs(hash) % branches.length];
+  return 'นวนคร';
 }
 
 /**
@@ -821,7 +873,7 @@ export function processBillingTrips(
         standardTruckType,
         zoneLocationMatch,
         dieselRate,
-        rateCards,
+        rateCards as any,
         manualBracketKey,
         raw.consigneeShipper
       );

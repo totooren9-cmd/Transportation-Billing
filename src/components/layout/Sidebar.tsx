@@ -6,12 +6,9 @@ import {
   Settings,
   BarChart3,
   Truck,
-  HardDrive,
-  CheckCircle,
   FileText,
   Scale,
-  BookOpen,
-  Database,
+  CheckCircle,
 } from 'lucide-react';
 
 export type PageTab =
@@ -21,9 +18,7 @@ export type PageTab =
   | 'quotation'
   | 'import'
   | 'reports'
-  | 'master'
-  | 'supabase-crud'
-  | 'manual';
+  | 'master';
 
 interface SidebarProps {
   currentTab: PageTab;
@@ -81,20 +76,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'master',
       label: 'ตั้งค่าเรทน้ำมัน & Rate Cards (Fuel Master)',
       icon: <Settings className="w-5 h-5" />,
-    },
-    {
-      id: 'supabase-crud',
-      label: 'จัดการ Supabase CRUD',
-      icon: <Database className="w-5 h-5 text-emerald-400" />,
-      badge: '7 Tables',
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
-    },
-    {
-      id: 'manual',
-      label: 'คู่มือการใช้งานระบบ (User Manual)',
-      icon: <BookOpen className="w-5 h-5 text-amber-400" />,
-      badge: 'ละเอียด',
-      badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
     },
   ];
 

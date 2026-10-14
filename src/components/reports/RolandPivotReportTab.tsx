@@ -32,9 +32,11 @@ export const RolandPivotReportTab: React.FC<RolandPivotReportTabProps> = ({
   const [subView, setSubView] = useState<'truck' | 'date' | 'raw'>('truck');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTruckType, setFilterTruckType] = useState<string>('ALL');
+  const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('ALL');
 
-  const truckPivot = buildRolandPivotByTruckType();
-  const datePivot = buildRolandPivotByDate();
+  const truckPivot = buildRolandPivotByTruckType(selectedBranch, selectedCustomer);
+  const datePivot = buildRolandPivotByDate(selectedBranch, selectedCustomer);
 
   // Filter raw trips
   const filteredRawTrips = ROLAND_FINAL_167_TRIPS.filter((t) => {
@@ -48,7 +50,17 @@ export const RolandPivotReportTab: React.FC<RolandPivotReportTabProps> = ({
     const matchesTruck =
       filterTruckType === 'ALL' || t.truckType === filterTruckType;
 
-    return matchesSearch && matchesTruck;
+    const matchesBranch =
+      selectedBranch === 'ALL' ||
+      t.pickUpName.includes(selectedBranch) ||
+      t.deliveryName.includes(selectedBranch);
+
+    const matchesCustomer =
+      selectedCustomer === 'ALL' ||
+      t.pickUpName.includes(selectedCustomer) ||
+      t.deliveryName.includes(selectedCustomer);
+
+    return matchesSearch && matchesTruck && matchesBranch && matchesCustomer;
   });
 
   return (
@@ -139,6 +151,49 @@ export const RolandPivotReportTab: React.FC<RolandPivotReportTabProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Branch and Customer Selector for Pivot Calculation */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+            เลือกสาขาและลูกค้าเพื่อคำนวณ:
+          </div>
+          <div className="flex items-center gap-2 flex-1 md:flex-initial">
+            <select
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              className="bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ALL">สาขาทั้งหมด (All Branches)</option>
+              <option value="บางบ่อ">บางบ่อ (Bang Bo / YBLC)</option>
+              <option value="นวนคร">นวนคร (Navanakorn)</option>
+              <option value="YSDC">สุวรรณภูมิ (YSDC)</option>
+            </select>
+
+            <select
+              value={selectedCustomer}
+              onChange={(e) => setSelectedCustomer(e.target.value)}
+              className="bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ALL">ลูกค้าทั้งหมด (All Customers)</option>
+              <option value="ROLAND">ROLAND DIGITAL GROUP</option>
+              <option value="YUSEN">YUSEN LOGISTICS (YBLC)</option>
+            </select>
+          </div>
+        </div>
+
+        {(selectedBranch !== 'ALL' || selectedCustomer !== 'ALL') && (
+          <button
+            onClick={() => {
+              setSelectedBranch('ALL');
+              setSelectedCustomer('ALL');
+            }}
+            className="text-xs font-semibold text-rose-600 hover:text-rose-700 underline whitespace-nowrap"
+          >
+            ล้างตัวกรอง
+          </button>
+        )}
       </div>
 
       {/* View Switcher Tabs */}

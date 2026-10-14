@@ -35,6 +35,7 @@ import {
 import {
   processBillingTrips,
   computeBillingSummary,
+  detectBranch,
 } from './services/billingCalculator';
 import { fetchPTTPrice, updateOrAddDieselPrice, fetchLiveOilPrices, LiveOilProduct } from './services/pttService';
 import {
@@ -75,6 +76,7 @@ import {
   deleteRecordsBulkFromSupabase,
   fullSyncPullFromSupabase,
   fetchTripsFromSupabase,
+  purgeAllTripsFromSupabase,
 } from './services/supabaseService';
 import {
   idbGet,
@@ -160,7 +162,11 @@ export default function App() {
   useEffect(() => {
     idbGet<RawTripData[]>(STORAGE_KEYS.TRIPS).then((idbTrips) => {
       if (idbTrips && Array.isArray(idbTrips) && idbTrips.length > 0) {
-        setTrips((curr) => (curr.length === 0 ? idbTrips : curr));
+        const normalized = idbTrips.map((t) => ({
+          ...t,
+          branch: (detectBranch(t) as 'บางบ่อ' | 'นวนคร') || t.branch || 'นวนคร',
+        }));
+        setTrips((curr) => (curr.length === 0 ? normalized : curr));
       }
     }).catch((e) => {
       console.warn('Could not read trips from IndexedDB:', e);
@@ -350,9 +356,13 @@ export default function App() {
       const pulled = await fullSyncPullFromSupabase();
       let tripsCount = 0;
       if (pulled.trips && pulled.trips.length > 0) {
-        setTrips(pulled.trips);
-        tripsCount = pulled.trips.length;
-        await idbSet(STORAGE_KEYS.TRIPS, pulled.trips).catch(console.warn);
+        const normalized = pulled.trips.map((t) => ({
+          ...t,
+          branch: (detectBranch(t) as 'บางบ่อ' | 'นวนคร') || t.branch || 'นวนคร',
+        }));
+        setTrips(normalized);
+        tripsCount = normalized.length;
+        await idbSet(STORAGE_KEYS.TRIPS, normalized).catch(console.warn);
       }
       if (pulled.dieselPrices && pulled.dieselPrices.length > 0) {
         setDieselPrices(pulled.dieselPrices);
@@ -492,14 +502,19 @@ export default function App() {
     }
   };
 
-  // Reset and Clear all trips to 0
-  const handleClearAllTrips = () => {
+  // Reset and Clear all trips to 0 (Entire System & Database)
+  const handleClearAllTrips = async () => {
     setTrips([]);
     setCustomRatesMap({});
     idbRemove(STORAGE_KEYS.TRIPS).catch(console.warn);
     safeLocalStorageRemove(STORAGE_KEYS.TRIPS);
     safeLocalStorageRemove(STORAGE_KEYS.CUSTOM_RATES);
-    addToast('info', 'ล้างข้อมูลเป็น 0 เรียบร้อย', 'เคลียร์รายการเที่ยวรถทั้งหมดเป็น 0 รายการ พร้อมสำหรับนำเข้าไฟล์ใหม่');
+    addToast('info', 'ล้างข้อมูลเป็น 0 เรียบร้อย', 'เคลียร์รายการเที่ยวรถทั้งหมดออกจากระบบ และลบออกจากฐานข้อมูล Supabase ทั้งหมดเรียบร้อย');
+    try {
+      await purgeAllTripsFromSupabase();
+    } catch (e) {
+      console.warn('Purge all trips from Supabase error:', e);
+    }
   };
 
   // Reset to Clean Slate (0 trips)
@@ -526,20 +541,29 @@ export default function App() {
 
   // Import raw data from Excel & Auto Sync to Supabase
   const handleImportRawData = async (newTrips: RawTripData[]) => {
-    setTrips(newTrips);
+    // Ensure all trips have proper branch detected (supporting multiple branches)
+    const normalizedTrips = newTrips.map((t) => ({
+      ...t,
+      branch: (detectBranch(t) as 'บางบ่อ' | 'นวนคร') || t.branch || 'นวนคร',
+    }));
+    setTrips(normalizedTrips);
     setCustomRatesMap({});
     setCurrentTab('billing');
+
+    const bangboCount = normalizedTrips.filter((t) => t.branch === 'บางบ่อ').length;
+    const navanakornCount = normalizedTrips.filter((t) => t.branch === 'นวนคร').length;
+
     addToast(
       'success',
       'นำเข้าข้อมูลสำเร็จ',
-      `เพิ่มข้อมูลเที่ยวขนส่งจำนวน ${newTrips.length} รายการ และคำนวณบิลเรียบร้อยแล้ว`
+      `เพิ่มข้อมูลเที่ยวขนส่งจำนวน ${normalizedTrips.length.toLocaleString()} รายการ (สาขาบางบ่อ: ${bangboCount.toLocaleString()} เที่ยว, สาขานวนคร: ${navanakornCount.toLocaleString()} เที่ยว) คำนวณบิลเรียบร้อยแล้ว`
     );
 
     // Auto-sync into Supabase Cloud in background
     try {
       const [tripsRes, rawRes] = await Promise.all([
-        bulkUpsertTrips(newTrips),
-        saveRawDataRecordsToSupabase(newTrips),
+        bulkUpsertTrips(normalizedTrips),
+        saveRawDataRecordsToSupabase(normalizedTrips),
       ]);
 
       if (!tripsRes.error && !rawRes.error) {
@@ -558,6 +582,28 @@ export default function App() {
     } catch (err: any) {
       console.warn('Auto sync trips to Supabase error:', err);
     }
+  };
+
+  // Re-detect branches from raw pickup, transport site, and company data
+  const handleReDetectBranches = () => {
+    if (trips.length === 0) {
+      addToast('info', 'ไม่พบข้อมูลเที่ยวรถ', 'ไม่มีข้อมูลเที่ยวรถที่ต้องแยกสาขา');
+      return;
+    }
+    const updated = trips.map((t) => ({
+      ...t,
+      branch: (detectBranch(t, true) as any) || 'นวนคร',
+    }));
+    const bCount = updated.filter((t) => t.branch === 'บางบ่อ').length;
+    const nCount = updated.filter((t) => t.branch === 'นวนคร').length;
+    setTrips(updated);
+    idbSet(STORAGE_KEYS.TRIPS, updated).catch(console.warn);
+    safeLocalStorageSet(STORAGE_KEYS.TRIPS, updated);
+    addToast(
+      'success',
+      'ตรวจจับและแยกสาขาตามข้อมูลจริงสำเร็จ',
+      `แยกสาขาเรียบร้อย: สาขาบางบ่อ ${bCount.toLocaleString()} เที่ยว, สาขานวนคร ${nCount.toLocaleString()} เที่ยว`
+    );
   };
 
   // Full Month Simulated dataset handler
@@ -907,6 +953,7 @@ export default function App() {
               customerRateConfigs={customerRateConfigs}
               onUpdateCustomerRateConfigs={handleUpdateCustomerRateConfigs}
               dieselPrices={dieselPrices}
+              onReDetectBranches={handleReDetectBranches}
             />
           )}
 
@@ -933,10 +980,6 @@ export default function App() {
               isFetchingDatabase={isFetchingDatabase}
             />
           )}
-
-          {currentTab === 'manual' && <UserManualPage />}
-
-          {currentTab === 'supabase-crud' && <SupabaseCrudPage addToast={addToast} />}
 
           {currentTab === 'quotation' && (
             <MasterDataPage

@@ -79,6 +79,7 @@ interface BillingReportPageProps {
   customerRateConfigs?: CustomerRateConfig[];
   onUpdateCustomerRateConfigs?: (configs: CustomerRateConfig[]) => void;
   dieselPrices?: DieselPriceRecord[];
+  onReDetectBranches?: () => void;
 }
 
 export const BillingReportPage: React.FC<BillingReportPageProps> = ({
@@ -112,6 +113,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   customerRateConfigs = [],
   onUpdateCustomerRateConfigs,
   dieselPrices = [],
+  onReDetectBranches,
 }) => {
   // Checkbox selection state for Bulk Operations
   const [selectedTripIds, setSelectedTripIds] = useState<string[]>([]);
@@ -213,7 +215,10 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   }, [trips]);
 
   const branchOptions = useMemo(() => {
-    return ['ALL', ...new Set(trips.map((t) => t.branch).filter(Boolean))];
+    const set = new Set(trips.map((t) => t.branch).filter(Boolean));
+    set.add('บางบ่อ');
+    set.add('นวนคร');
+    return ['ALL', ...Array.from(set)];
   }, [trips]);
 
   const zoneOptions = useMemo(() => {
@@ -658,17 +663,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             </button>
           )}
 
-          {/* Simulate Full Month Button */}
-          {onSimulateFullMonthTrips && (
-            <button
-              onClick={onSimulateFullMonthTrips}
-              className="px-3.5 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-              title="โหลดชุดข้อมูลจำลองปิดรอบเดือน 9 เพื่อดูยอดจริง บางบ่อ ฿3.78M / นวนคร ฿507k"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>จำลองปิดรอบเดือน 9 (บางบ่อ 3.78M / นวนคร 507k)</span>
-            </button>
-          )}
+
 
           {/* Export Excel */}
           <button
@@ -679,6 +674,18 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             <FileSpreadsheet className="w-4 h-4" />
             <span>Export Excel</span>
           </button>
+
+          {/* Re-detect Branches */}
+          {onReDetectBranches && (
+            <button
+              onClick={onReDetectBranches}
+              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="ตรวจจับและแยกสาขาตามข้อมูลจริง (แยกสาขาบางบ่อและนวนครจากข้อมูลต้นทาง-ปลายทาง)"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>แยก 2 สาขาตามข้อมูลจริง</span>
+            </button>
+          )}
 
           {/* Export / Print PDF */}
           <button
@@ -852,22 +859,38 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
 
           {/* Branch (สาขา) */}
           <div className="space-y-1">
-            <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
-              สาขา (Branch):
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
+                สาขา (Branch):
+              </label>
+              {onReDetectBranches && (
+                <button
+                  type="button"
+                  onClick={onReDetectBranches}
+                  className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                  title="ตรวจจับและแยกสาขาตามข้อมูลจริง (บางบ่อ / นวนคร)"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                  <span>แยก 2 สาขา</span>
+                </button>
+              )}
+            </div>
             <select
               value={filterBranch}
               onChange={(e) => {
                 setFilterBranch(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs"
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white focus:outline-hidden focus:border-blue-500 text-xs font-medium"
             >
-              {branchOptions.map((b) => (
-                <option key={b} value={b}>
-                  {b === 'ALL' ? 'ทุกสาขา (ทุกสาขาทั้งหมด)' : `สาขา${b}`}
-                </option>
-              ))}
+              {branchOptions.map((b) => {
+                const count = b === 'ALL' ? trips.length : trips.filter((t) => t.branch === b).length;
+                return (
+                  <option key={b} value={b}>
+                    {b === 'ALL' ? `ทุกสาขา (รวมทั้ง 2 สาขา ${count.toLocaleString()} เที่ยว)` : `สาขา${b} (${count.toLocaleString()} เที่ยว)`}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

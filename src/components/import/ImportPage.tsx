@@ -52,7 +52,7 @@ import {
   DieselPriceRecord,
   RateCardTable,
 } from '../../types';
-import { normalizeTruckType } from '../../services/billingCalculator';
+import { normalizeTruckType, detectBranch } from '../../services/billingCalculator';
 
 interface ImportPageProps {
   onImportRawData: (trips: RawTripData[]) => void;
@@ -107,7 +107,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({
 
   // Card 3: Raw Data State
   const [card3File, setCard3File] = useState<File | null>(null);
-  const [card3Branch, setCard3Branch] = useState<'NLC' | 'BLC'>('NLC');
+  const [card3Branch, setCard3Branch] = useState<'ALL' | 'NLC' | 'BLC'>('ALL');
   const [card3Month, setCard3Month] = useState<string>('Sep-26');
   const [card3Parsed, setCard3Parsed] = useState<RawTripData[]>([]);
   const [card3Status, setCard3Status] = useState<{ loading: boolean; success?: string; error?: string }>({ loading: false });
@@ -293,9 +293,31 @@ export const ImportPage: React.FC<ImportPageProps> = ({
   // -------------------------------------------------------------
   // Card 3 Handlers: Raw Data Upload
   // -------------------------------------------------------------
-  const handleCard3FileSelect = async (file: File) => {
+  const processRawTripsWithBranch = (
+    parsed: RawTripData[],
+    branchMode: 'ALL' | 'NLC' | 'BLC'
+  ): RawTripData[] => {
+    return parsed.map((t) => {
+      let b = t.branch;
+      if (branchMode === 'BLC') {
+        b = 'บางบ่อ';
+      } else if (branchMode === 'NLC') {
+        b = 'นวนคร';
+      } else {
+        // 'ALL': preserve detected branch per trip!
+        b = (detectBranch(t) as 'บางบ่อ' | 'นวนคร') || t.branch || 'นวนคร';
+      }
+      return {
+        ...t,
+        branch: b as 'บางบ่อ' | 'นวนคร',
+      };
+    });
+  };
+
+  const handleCard3FileSelect = async (file: File, branchModeOverride?: 'ALL' | 'NLC' | 'BLC') => {
     setCard3File(file);
     setCard3Status({ loading: true });
+    const targetBranchMode = branchModeOverride || card3Branch;
     try {
       const buffer = await file.arrayBuffer();
       const parsed = parseUploadedRawData(buffer);
@@ -303,21 +325,45 @@ export const ImportPage: React.FC<ImportPageProps> = ({
         throw new Error('ไม่พบเที่ยวขนส่งในไฟล์ หรือโครงสร้าง 69 คอลัมน์ไม่ตรง');
       }
 
-      // Override branch if user selected BLC/NLC explicitly
-      const branchName = card3Branch === 'BLC' ? 'บางบ่อ' : 'นวนคร';
-      const adjusted = parsed.map((t) => ({
-        ...t,
-        branch: branchName as 'บางบ่อ' | 'นวนคร',
-      }));
+      const adjusted = processRawTripsWithBranch(parsed, targetBranchMode);
+
+      const bangboCount = adjusted.filter((t) => t.branch === 'บางบ่อ').length;
+      const navanakornCount = adjusted.filter((t) => t.branch === 'นวนคร').length;
+      const otherCount = adjusted.length - bangboCount - navanakornCount;
+
+      const branchSummary =
+        targetBranchMode === 'ALL'
+          ? `(สาขาบางบ่อ: ${bangboCount.toLocaleString()} เที่ยว, สาขานวนคร: ${navanakornCount.toLocaleString()} เที่ยว${otherCount > 0 ? `, สาขาอื่น: ${otherCount}` : ''})`
+          : `(กำหนดสาขา${targetBranchMode === 'BLC' ? 'บางบ่อ' : 'นวนคร'}: ${adjusted.length.toLocaleString()} เที่ยว)`;
 
       setCard3Parsed(adjusted);
       setCard3Status({
         loading: false,
-        success: `อ่านข้อมูลสำเร็จพบ ${adjusted.length} เที่ยว (สาขา ${card3Branch}, ประจำงวด ${card3Month}) พร้อมบันทึกเข้า Supabase`,
+        success: `อ่านข้อมูลสำเร็จพบ ${adjusted.length.toLocaleString()} เที่ยว ${branchSummary} ประจำงวด ${card3Month} พร้อมบันทึกเข้า Supabase`,
       });
     } catch (err: any) {
       setCard3Parsed([]);
       setCard3Status({ loading: false, error: err.message || 'อ่านไฟล์ Raw Data ล้มเหลว' });
+    }
+  };
+
+  const handleCard3BranchChange = (newBranch: 'ALL' | 'NLC' | 'BLC') => {
+    setCard3Branch(newBranch);
+    if (card3File) {
+      handleCard3FileSelect(card3File, newBranch);
+    } else if (card3Parsed.length > 0) {
+      const remapped = processRawTripsWithBranch(card3Parsed, newBranch);
+      setCard3Parsed(remapped);
+      const bangboCount = remapped.filter((t) => t.branch === 'บางบ่อ').length;
+      const navanakornCount = remapped.filter((t) => t.branch === 'นวนคร').length;
+      const branchSummary =
+        newBranch === 'ALL'
+          ? `(สาขาบางบ่อ: ${bangboCount.toLocaleString()} เที่ยว, สาขานวนคร: ${navanakornCount.toLocaleString()} เที่ยว)`
+          : `(กำหนดสาขา${newBranch === 'BLC' ? 'บางบ่อ' : 'นวนคร'}: ${remapped.length.toLocaleString()} เที่ยว)`;
+      setCard3Status({
+        loading: false,
+        success: `อัปเดตสาขาเรียบร้อย: ${branchSummary}`,
+      });
     }
   };
 
@@ -330,7 +376,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({
     setCard3Status({ loading: true });
     try {
       // 1. Save directly into `raw_data` table in Supabase
-      const resRaw = await saveRawDataRecordsToSupabase(card3Parsed, card3Branch);
+      // If 'ALL', do not force an override branch string, preserve each trip's detected branch!
+      const branchOverride = card3Branch === 'ALL' ? undefined : (card3Branch === 'BLC' ? 'BLC' : 'NLC');
+      const resRaw = await saveRawDataRecordsToSupabase(card3Parsed, branchOverride);
 
       // 2. Save directly into `transport_trips` table in Supabase
       const resTrips = await saveTripsToSupabase(card3Parsed);
@@ -338,16 +386,19 @@ export const ImportPage: React.FC<ImportPageProps> = ({
       // 3. Put into application state
       onImportRawData(card3Parsed);
 
+      const bangboCount = card3Parsed.filter((t) => t.branch === 'บางบ่อ').length;
+      const navanakornCount = card3Parsed.filter((t) => t.branch === 'นวนคร').length;
+
       setCard3Status({
         loading: false,
-        success: `✅ นำเข้าและบันทึก Raw Data ${card3Parsed.length} เที่ยว เข้าสู่ฐานข้อมูล Supabase อัตโนมัติเรียบร้อย!`,
+        success: `✅ นำเข้าและบันทึก Raw Data ${card3Parsed.length.toLocaleString()} เที่ยว (บางบ่อ: ${bangboCount.toLocaleString()} เที่ยว, นวนคร: ${navanakornCount.toLocaleString()} เที่ยว) เข้าสู่ระบบเรียบร้อย!`,
       });
 
       if (addToast) {
         addToast(
           'success',
-          'บันทึก Raw Data เข้า Supabase สำเร็จ',
-          `บันทึกข้อมูลเที่ยวขนส่ง ${card3Parsed.length} รายการ เข้าสู่ตาราง raw_data & transport_trips ใน Supabase เรียบร้อย`
+          'บันทึก Raw Data สำเร็จ',
+          `นำเข้าเที่ยวขนส่ง ${card3Parsed.length.toLocaleString()} รายการ (บางบ่อ: ${bangboCount.toLocaleString()} เที่ยว, นวนคร: ${navanakornCount.toLocaleString()} เที่ยว) เข้าสู่ระบบเรียบร้อย`
         );
       }
     } catch (err: any) {
@@ -816,11 +867,12 @@ export const ImportPage: React.FC<ImportPageProps> = ({
                   </label>
                   <select
                     value={card3Branch}
-                    onChange={(e) => setCard3Branch(e.target.value as any)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500"
+                    onChange={(e) => handleCard3BranchChange(e.target.value as any)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 font-medium"
                   >
-                    <option value="NLC">นวนคร (NLC)</option>
-                    <option value="BLC">บางบ่อ (BLC)</option>
+                    <option value="ALL">เพิ่ม สาขาทั้งหมดด้วย (ตรวจจับอัตโนมัติ บางบ่อ + นวนคร)</option>
+                    <option value="NLC">กำหนดเฉพาะสาขานวนคร (NLC)</option>
+                    <option value="BLC">กำหนดเฉพาะสาขาบางบ่อ (BLC)</option>
                   </select>
                 </div>
 

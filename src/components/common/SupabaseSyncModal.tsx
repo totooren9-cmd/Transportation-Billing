@@ -582,17 +582,17 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
           isOpen={isDeleteModalOpen}
           onClose={() => setIsDeleteModalOpen(false)}
           targetType="transport_trips"
-          targetLabel="เที่ยวรถทั้งหมดใน Supabase Cloud"
+          targetLabel="ข้อมูลทั้งหมดในระบบ (ทุกตารางใน Supabase)"
           itemsCount={trips.length || 1}
           isBulk={true}
-          itemName="เที่ยวรถทั้งหมดบนคลาวด์ (Cloud Flush)"
-          filterDescription="ล้างตาราง transport_trips & raw_data บน Supabase ทั้งหมด"
+          itemName="ลบข้อมูลทั้งหมดในระบบ (System Full Reset)"
+          filterDescription="ล้างข้อมูลทุกตาราง (Trips, Raw Data, Rate Cards, Quotations, Fuel Prices, Upload History ฯลฯ) บน Supabase และ Local Storage ทั้งหมด"
           onConfirmDelete={async () => {
             setIsClearingTrips(true);
             try {
               const res = await clearAllTripsInSupabase();
               if (res.success) {
-                addToast('info', 'ลบข้อมูลเที่ยวรถใน Supabase Cloud ทั้งหมดเรียบร้อยแล้ว');
+                addToast('info', 'ลบข้อมูลทั้งหมดในระบบ (ทุกตาราง) เรียบร้อยแล้ว');
               } else {
                 addToast('error', `ลบข้อมูลไม่สำเร็จ: ${res.error}`);
               }

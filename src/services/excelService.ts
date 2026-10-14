@@ -703,11 +703,58 @@ export function parseUploadedRawData(fileData: ArrayBuffer): RawTripData[] {
     const confirmOrderDate = getCol(row, ['confirm order date'], 67);
     const eRunningNo = getCol(row, ['erunningno', 'e running no'], 68);
 
-    // Determine Branch (บางบ่อ vs นวนคร) from sites and names
+    // Determine Branch (บางบ่อ vs นวนคร) from explicit column, sites, pickup, and delivery
+    const explicitBranch = getCol(row, ['branch', 'สาขา', 'ศูนย์', 'hub', 'depot', 'center', 'branch name', 'site name', 'ต้นทาง', 'site', 'dc']);
+    
+    // 1. Origin site check (Highest Priority)
+    const siteOnly = [truckSite, transportSite, businessUnit, explicitBranch].filter(Boolean).join(' ').toLowerCase();
+    const isSiteBangbo = siteOnly.includes('blc') || siteOnly.includes('บางบ่อ') || siteOnly.includes('bbo') || siteOnly.includes('yblc');
+    const isSiteNavanakorn = siteOnly.includes('nlc') || siteOnly.includes('นวนคร') || siteOnly.includes('ynlc');
+
+    // 2. Pickup / Origin text
+    const originText = [explicitBranch, truckSite, transportSite, businessUnit, pickUpName, pickUpAddress, pickUpProvince, pickUpDistrict, pickUpZone, jobNo].filter(Boolean).join(' ').toLowerCase();
+    const isOriginBangbo =
+      isSiteBangbo ||
+      originText.includes('บางบ่อ') ||
+      originText.includes('blc') ||
+      originText.includes('bbo') ||
+      originText.includes('สมุทรปราการ') ||
+      originText.includes('บางเสาธง') ||
+      originText.includes('บางพลี') ||
+      originText.includes('บางปู') ||
+      originText.includes('สุวรรณภูมิ') ||
+      originText.includes('1005') ||
+      originText.includes('roland');
+
+    const isOriginNavanakorn =
+      isSiteNavanakorn ||
+      originText.includes('นวนคร') ||
+      originText.includes('nlc') ||
+      originText.includes('navanakorn') ||
+      originText.includes('ปทุมธานี') ||
+      originText.includes('คลองหลวง') ||
+      originText.includes('คลองหนึ่ง') ||
+      originText.includes('1004');
+
     let branch: 'บางบ่อ' | 'นวนคร' = 'นวนคร';
-    const siteText = `${truckSite} ${transportSite} ${pickUpName} ${businessUnit}`.toLowerCase();
-    if (siteText.includes('บางบ่อ') || siteText.includes('blc') || siteText.includes('bbo') || siteText.includes('สมุทรปราการ')) {
+    if (isOriginBangbo && !isOriginNavanakorn) {
       branch = 'บางบ่อ';
+    } else if (isOriginNavanakorn && !isOriginBangbo) {
+      branch = 'นวนคร';
+    } else if (isSiteBangbo) {
+      branch = 'บางบ่อ';
+    } else if (isSiteNavanakorn) {
+      branch = 'นวนคร';
+    } else if ((pickUpProvince || '').includes('สมุทรปราการ')) {
+      branch = 'บางบ่อ';
+    } else if ((pickUpProvince || '').includes('ปทุมธานี')) {
+      branch = 'นวนคร';
+    } else if ((rawConsignee || deliveryName || '').toLowerCase().includes('roland')) {
+      branch = 'บางบ่อ';
+    } else if ((deliveryAddress || deliveryProvince || '').toLowerCase().includes('สมุทรปราการ')) {
+      branch = 'บางบ่อ';
+    } else {
+      branch = 'นวนคร';
     }
 
     // Determine Consignee / Shipper name
