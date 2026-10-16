@@ -279,7 +279,11 @@ export const PriceComparisonPage: React.FC<PriceComparisonPageProps> = ({
             >
               <DownloadCloud className={`w-3.5 h-3.5 ${isFetchingDatabase ? 'animate-bounce text-white' : 'text-emerald-200'}`} />
               <span>
-                {isFetchingDatabase ? 'กำลังดึง DB...' : `ดึงจาก DB (${rawTrips.length > 0 ? rawTrips.length.toLocaleString() : '4,102'})`}
+                {isFetchingDatabase
+                  ? 'กำลังดึง DB...'
+                  : rawTrips.length > 0
+                  ? `ดึงจาก DB (${rawTrips.length.toLocaleString()})`
+                  : 'ดึงข้อมูลจาก Cloud DB'}
               </span>
             </button>
           )}

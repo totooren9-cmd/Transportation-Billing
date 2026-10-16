@@ -66,6 +66,8 @@ import { GoogleDriveModal } from './components/common/GoogleDriveModal';
 import { QuotationUploadModal } from './components/quotation/QuotationUploadModal';
 import { UnauthorizedDomainModal } from './components/common/UnauthorizedDomainModal';
 import { SupabaseSyncModal } from './components/common/SupabaseSyncModal';
+import { RolandPivotModal } from './components/common/RolandPivotModal';
+import { convertRolandToRawTrips } from './services/rolandDataService';
 import { RefreshCw, DownloadCloud, Database, Cloud } from 'lucide-react';
 import {
   saveTripsToSupabase,
@@ -116,6 +118,12 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<PageTab>('billing');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [selectedReportCompany, setSelectedReportCompany] = useState<string | null>(null);
+
+  const handleViewCompanyReport = (companyName: string) => {
+    setSelectedReportCompany(companyName);
+    setCurrentTab('reports');
+  };
 
   // Selected Bracket Tier ('auto' or specific bracket key like 'c_30_32')
   const [selectedBracket, setSelectedBracket] = useState<string>(() => {
@@ -272,6 +280,9 @@ export default function App() {
   // Supabase Cloud Modal
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
 
+  // Roland Verified Pivot & Variance Modal
+  const [isRolandModalOpen, setIsRolandModalOpen] = useState(false);
+
   // Unauthorized Domain (Firebase / Netlify) State
   const [unauthorizedDomainError, setUnauthorizedDomainError] = useState<AuthDomainErrorInfo | null>(null);
   const [isUnauthorizedDomainModalOpen, setIsUnauthorizedDomainModalOpen] = useState(false);
@@ -348,10 +359,21 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Master pull from Supabase Cloud Database (pulls all 4,102 trips and master tables)
+  const handleLoadRolandTrips = useCallback(() => {
+    const rolandTrips = convertRolandToRawTrips();
+    setTrips(rolandTrips);
+    addToast(
+      'success',
+      'โหลดข้อมูล Roland 167 เที่ยวสำเร็จ!',
+      'นำเข้า 167 เที่ยวจริงตามสัญญา (4,012 QTY • ฿640,180.00) เข้าสู่ระบบเรียบร้อย'
+    );
+    setCurrentTab('billing');
+  }, [addToast]);
+
+  // Master pull from Supabase Cloud Database (pulls trips and master tables)
   const handleFetchAllFromDatabase = useCallback(async (isInitial = false) => {
     setIsFetchingDatabase(true);
-    setDbLoadStatus('กำลังดึงข้อมูลทั้งหมดจากฐานข้อมูล Supabase Cloud (4,102 รายการ)...');
+    setDbLoadStatus('กำลังดึงข้อมูลทั้งหมดจากฐานข้อมูล Supabase Cloud...');
     try {
       const pulled = await fullSyncPullFromSupabase();
       let tripsCount = 0;
@@ -391,7 +413,7 @@ export default function App() {
           `โหลดข้อมูลเที่ยวรถทั้งหมด ${tripsCount.toLocaleString()} รายการ และ Master Data จาก Cloud เรียบร้อยแล้ว`
         );
       } else if (!isInitial) {
-        addToast('info', 'เชื่อมต่อฐานข้อมูลสำเร็จ', 'ไม่พบข้อมูลเที่ยวรถในฐานข้อมูล');
+        addToast('info', 'เชื่อมต่อฐานข้อมูลสำเร็จ', 'ฐานข้อมูลในระบบขณะนี้มี 0 รายการ (ยังไม่มีข้อมูลเที่ยวรถใน Cloud DB)');
       }
     } catch (err: any) {
       console.error('Fetch all from database error:', err);
@@ -404,7 +426,7 @@ export default function App() {
     }
   }, [addToast]);
 
-  // Initial Auto-Fetch: Load all 4,102 records from Supabase on mount
+  // Initial Auto-Fetch: Load records from Supabase on mount
   useEffect(() => {
     handleFetchAllFromDatabase(true);
   }, [handleFetchAllFromDatabase]);
@@ -876,6 +898,7 @@ export default function App() {
           }}
           onOpenDriveModal={() => setIsDriveModalOpen(true)}
           onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+          onOpenRolandModal={() => setIsRolandModalOpen(true)}
           onFetchAllFromDatabase={() => handleFetchAllFromDatabase(false)}
           isFetchingDatabase={isFetchingDatabase}
           tripsCount={trips.length}
@@ -889,7 +912,7 @@ export default function App() {
               <span>{dbLoadStatus}</span>
             </div>
             <span className="hidden sm:inline text-[11px] bg-white/20 px-2.5 py-0.5 rounded-full font-bold">
-              Supabase Cloud (4,102 รายการ)
+              Supabase Cloud {trips.length > 0 ? `(${trips.length.toLocaleString()} รายการ)` : '(เชื่อมต่อแล้ว)'}
             </span>
           </div>
         )}
@@ -954,6 +977,9 @@ export default function App() {
               onUpdateCustomerRateConfigs={handleUpdateCustomerRateConfigs}
               dieselPrices={dieselPrices}
               onReDetectBranches={handleReDetectBranches}
+              onNavigateToCompanyReport={handleViewCompanyReport}
+              onOpenRolandModal={() => setIsRolandModalOpen(true)}
+              onLoadRolandTrips={handleLoadRolandTrips}
             />
           )}
 
@@ -1021,7 +1047,15 @@ export default function App() {
             />
           )}
 
-          {currentTab === 'reports' && <ReportsPage trips={calculatedTrips} />}
+          {currentTab === 'reports' && (
+            <ReportsPage
+              trips={calculatedTrips}
+              initialSelectedCompany={selectedReportCompany}
+              onNavigateToBilling={() => setCurrentTab('billing')}
+              onReDetectBranches={handleReDetectBranches}
+              onLoadRolandTrips={handleLoadRolandTrips}
+            />
+          )}
 
           {currentTab === 'master' && (
             <MasterDataPage
@@ -1111,6 +1145,17 @@ export default function App() {
         fixedCustomers={fixedCustomers}
         setFixedCustomers={setFixedCustomers}
         addToast={addToast}
+      />
+
+      {/* Roland Verified Pivot & Variance Analysis Modal */}
+      <RolandPivotModal
+        isOpen={isRolandModalOpen}
+        onClose={() => setIsRolandModalOpen(false)}
+        onLoadRolandTrips={handleLoadRolandTrips}
+        onNavigateToBilling={() => {
+          setCurrentTab('billing');
+          setIsRolandModalOpen(false);
+        }}
       />
 
       {/* Toast Notification Container */}

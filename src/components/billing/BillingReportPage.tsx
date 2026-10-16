@@ -80,6 +80,9 @@ interface BillingReportPageProps {
   onUpdateCustomerRateConfigs?: (configs: CustomerRateConfig[]) => void;
   dieselPrices?: DieselPriceRecord[];
   onReDetectBranches?: () => void;
+  onNavigateToCompanyReport?: (companyName: string) => void;
+  onOpenRolandModal?: () => void;
+  onLoadRolandTrips?: () => void;
 }
 
 export const BillingReportPage: React.FC<BillingReportPageProps> = ({
@@ -114,6 +117,9 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
   onUpdateCustomerRateConfigs,
   dieselPrices = [],
   onReDetectBranches,
+  onNavigateToCompanyReport,
+  onOpenRolandModal,
+  onLoadRolandTrips,
 }) => {
   // Checkbox selection state for Bulk Operations
   const [selectedTripIds, setSelectedTripIds] = useState<string[]>([]);
@@ -590,7 +596,11 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             >
               <DownloadCloud className={`w-4 h-4 ${isFetchingDatabase ? 'animate-bounce text-white' : 'text-emerald-200'}`} />
               <span>
-                {isFetchingDatabase ? 'กำลังดึงข้อมูลจาก DB...' : `ดึงจากฐานข้อมูล DB (${trips.length > 0 ? trips.length.toLocaleString() : '4,102'})`}
+                {isFetchingDatabase
+                  ? 'กำลังดึงข้อมูลจาก DB...'
+                  : trips.length > 0
+                  ? `ดึงจากฐานข้อมูล DB (${trips.length.toLocaleString()})`
+                  : 'ดึงข้อมูลจาก Cloud DB'}
               </span>
             </button>
           )}
@@ -604,6 +614,18 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
             >
               <Scale className="w-4 h-4 text-emerald-200" />
               <span>Diff Check (เทียบราคาสาขา)</span>
+            </button>
+          )}
+
+          {/* Roland Ground Truth Pivot & 701k Variance Modal Button */}
+          {onOpenRolandModal && (
+            <button
+              onClick={onOpenRolandModal}
+              className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+              title="เปิดดูรายงาน Pivot Table ของ Roland (167 เที่ยว / ฿640,180.00) และวิเคราะห์สาเหตุยอด ฿701,000"
+            >
+              <Scale className="w-4 h-4 text-amber-200" />
+              <span>📊 Roland Pivot & วิเคราะห์ ฿701,000</span>
             </button>
           )}
 
@@ -1429,12 +1451,13 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                     <th className="py-2.5 px-4 text-right font-bold text-blue-600 dark:text-blue-400">ยอดคำนวณมาตรฐาน</th>
                     <th className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">ยอดสาขาส่งมา</th>
                     <th className="py-2.5 px-3 text-right font-bold">ผลต่าง (Diff)</th>
+                    <th className="py-2.5 px-3 text-center">รายงาน Fuel Pivot</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
                   {customerSummaries.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-6 text-center text-slate-400">
+                      <td colSpan={10} className="py-6 text-center text-slate-400">
                         ไม่พบข้อมูลลูกค้า
                       </td>
                     </tr>
@@ -1442,9 +1465,15 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                     customerSummaries.map((c, idx) => {
                       const hasDiff = Math.abs(c.diffAmount) > 0.01;
                       return (
-                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                          <td className="py-2 px-4 font-semibold text-slate-800 dark:text-white">
-                            {c.customerName}
+                        <tr
+                          key={idx}
+                          className="hover:bg-blue-50/50 dark:hover:bg-slate-700/40 transition-colors cursor-pointer group"
+                          onClick={() => onNavigateToCompanyReport && onNavigateToCompanyReport(c.customerName)}
+                          title="คลิกเพื่อเปิดรายงานวิเคราะห์ค่าน้ำมันแยกประเภทรถ"
+                        >
+                          <td className="py-2 px-4 font-semibold text-slate-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span>{c.customerName}</span>
                           </td>
                           <td className="py-2 px-3">
                             {c.isFixedDiesel ? (
@@ -1486,6 +1515,20 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                               </span>
                             ) : (
                               <span className="text-emerald-600 dark:text-emerald-400 font-bold">✓ Match</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {onNavigateToCompanyReport && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigateToCompanyReport(c.customerName);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                              >
+                                <span>ดูรายงาน</span>
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1955,7 +1998,7 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                               className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-md transition-all active:scale-95 disabled:opacity-60 cursor-pointer"
                             >
                               <DownloadCloud className={`w-4 h-4 ${isFetchingDatabase ? 'animate-bounce' : ''}`} />
-                              <span>{isFetchingDatabase ? 'กำลังดึงข้อมูลจาก Cloud...' : '⚡ ดึงข้อมูลทั้งหมดจากฐานข้อมูล Supabase (4,102 รายการ)'}</span>
+                              <span>{isFetchingDatabase ? 'กำลังดึงข้อมูลจาก Cloud...' : '⚡ ดึงข้อมูลทั้งหมดจากฐานข้อมูล Supabase'}</span>
                             </button>
                           )}
                           <button
@@ -1965,6 +2008,15 @@ export const BillingReportPage: React.FC<BillingReportPageProps> = ({
                             <FileSpreadsheet className="w-4 h-4" />
                             <span>ดาวน์โหลด Template 69 คอลัมน์</span>
                           </button>
+                          {onLoadRolandTrips && (
+                            <button
+                              onClick={onLoadRolandTrips}
+                              className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+                              title="โหลดชุดข้อมูล Roland 167 เที่ยวจริงตามสัญญา (4,012 QTY • ฿640,180.00)"
+                            >
+                              <span>📊 โหลด 167 เที่ยวจริง Roland (฿640,180)</span>
+                            </button>
+                          )}
                           {onSimulateFullMonthTrips && (
                             <button
                               onClick={onSimulateFullMonthTrips}

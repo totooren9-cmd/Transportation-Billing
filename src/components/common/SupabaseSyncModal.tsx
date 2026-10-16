@@ -26,6 +26,7 @@ import {
   fullSyncPushToSupabase,
   fullSyncPullFromSupabase,
   clearAllTripsInSupabase,
+  getSupabaseTripsCount,
 } from '../../services/supabaseService';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import {
@@ -93,6 +94,7 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const [copiedSql, setCopiedSql] = useState(false);
+  const [cloudTripsCount, setCloudTripsCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -108,13 +110,18 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
   const runTestConnection = async () => {
     setIsTesting(true);
     try {
-      const res = await testSupabaseConnection();
+      const [res, countRes] = await Promise.all([
+        testSupabaseConnection(),
+        getSupabaseTripsCount(),
+      ]);
       setTestResult(res);
+      setCloudTripsCount(countRes.error ? null : countRes.count);
     } catch (err: any) {
       setTestResult({
         success: false,
         message: err?.message || 'Connection check failed',
       });
+      setCloudTripsCount(null);
     } finally {
       setIsTesting(false);
     }
@@ -392,6 +399,24 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
                     <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 px-2 py-0.5 rounded-full font-semibold">
                       Online 24/7
                     </span>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px]">จำนวนเที่ยวรถบน Supabase Cloud จริง</div>
+                    <div className="text-lg font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                      {cloudTripsCount !== null ? (
+                        <>
+                          <span>{cloudTripsCount.toLocaleString()} รายการ</span>
+                          {cloudTripsCount === 0 && (
+                            <span className="text-[11px] font-medium px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded-full">
+                              ฐานข้อมูลว่าง (0 รายการ)
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-normal">กำลังตรวจสอบจาก DB...</span>
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">

@@ -265,7 +265,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 title="ดึงข้อมูลเที่ยวขนส่งและ Master Data ทั้งหมดจากฐานข้อมูล Supabase Cloud มาแสดงผลทันที"
               >
                 <Download className={`w-4 h-4 ${isFetchingDatabase ? 'animate-bounce' : ''}`} />
-                <span>{isFetchingDatabase ? 'กำลังดึง DB...' : `ดึงจาก DB (${trips.length > 0 ? trips.length.toLocaleString() : '4,102'})`}</span>
+                <span>
+                  {isFetchingDatabase
+                    ? 'กำลังดึง DB...'
+                    : trips.length > 0
+                    ? `ดึงจาก DB (${trips.length.toLocaleString()})`
+                    : 'ดึงข้อมูลจาก Cloud DB'}
+                </span>
               </button>
             )}
             <button

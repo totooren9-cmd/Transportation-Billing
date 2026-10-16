@@ -1569,5 +1569,23 @@ export async function purgeAllTripsFromSupabase(): Promise<{ success: boolean; e
   }
 }
 
+/**
+ * 9. Get real count of trips currently stored in Supabase Cloud
+ */
+export async function getSupabaseTripsCount(): Promise<{ count: number; error: string | null }> {
+  try {
+    const client = getSupabase();
+    const { count, error } = await (client.from('transport_trips') as any)
+      .select('id', { count: 'exact', head: true });
+    if (error) {
+      return { count: 0, error: error.message };
+    }
+    return { count: count ?? 0, error: null };
+  } catch (err: any) {
+    return { count: 0, error: err?.message || 'Failed to get trips count' };
+  }
+}
+
+
 
 

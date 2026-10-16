@@ -28,6 +28,7 @@ interface NavbarProps {
   setGlobalSearch: (val: string) => void;
   onOpenDriveModal?: () => void;
   onOpenSupabaseModal?: () => void;
+  onOpenRolandModal?: () => void;
   onFetchAllFromDatabase?: () => void;
   isFetchingDatabase?: boolean;
   tripsCount?: number;
@@ -47,6 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setGlobalSearch,
   onOpenDriveModal,
   onOpenSupabaseModal,
+  onOpenRolandModal,
   onFetchAllFromDatabase,
   isFetchingDatabase = false,
   tripsCount = 0,
@@ -104,7 +106,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <DownloadCloud className={`w-3.5 h-3.5 ${isFetchingDatabase ? 'animate-bounce text-white' : 'text-emerald-200'}`} />
             <span>
-              {isFetchingDatabase ? 'กำลังดึง DB...' : `ดึงจาก DB (${tripsCount > 0 ? tripsCount.toLocaleString() : '4,102'})`}
+              {isFetchingDatabase
+                ? 'กำลังดึง DB...'
+                : tripsCount > 0
+                ? `ดึงจาก DB (${tripsCount.toLocaleString()})`
+                : 'ดึงข้อมูลจาก DB'}
             </span>
           </button>
         )}
@@ -132,6 +138,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <HardDrive className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             <span className="hidden sm:inline">📁 Drive & ไฟล์ตัวอย่าง</span>
             <span className="sm:hidden font-bold">Drive</span>
+          </button>
+        )}
+
+        {/* Roland Pivot & 701k Variance Modal Button */}
+        {onOpenRolandModal && (
+          <button
+            onClick={onOpenRolandModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-700/60 rounded-lg text-amber-900 dark:text-amber-200 text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+            title="เปิด Pivot Table & วิเคราะห์สาเหตุยอด ฿701,000 vs ฿640,180 ของ Roland"
+          >
+            <span>📊</span>
+            <span className="hidden sm:inline">Roland Pivot (167 เที่ยว)</span>
+            <span className="sm:hidden font-bold">Roland</span>
           </button>
         )}
 

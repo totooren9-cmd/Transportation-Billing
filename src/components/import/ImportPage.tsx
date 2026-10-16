@@ -438,7 +438,11 @@ export const ImportPage: React.FC<ImportPageProps> = ({
             >
               <DownloadCloud className={`w-4 h-4 ${isFetchingDatabase ? 'animate-bounce text-white' : 'text-emerald-200'}`} />
               <span>
-                {isFetchingDatabase ? 'กำลังดึง DB...' : `ดึงจาก DB (${currentTripsCount > 0 ? currentTripsCount.toLocaleString() : '4,102'})`}
+                {isFetchingDatabase
+                  ? 'กำลังดึง DB...'
+                  : currentTripsCount > 0
+                  ? `ดึงจาก DB (${currentTripsCount.toLocaleString()})`
+                  : 'ดึงข้อมูลจาก Cloud DB'}
               </span>
             </button>
           )}

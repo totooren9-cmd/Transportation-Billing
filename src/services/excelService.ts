@@ -665,8 +665,8 @@ export function parseUploadedRawData(fileData: ArrayBuffer): RawTripData[] {
       rawTruckType = '4W/Single Unit';
     }
 
-    // 50. Truck Charge (Column AX = index 49) - Branch Sent Rate / TMS Amount
-    const rawTruckCharge = getCol(row, ['truck charge', 'charge', 'ค่ารถ', 'ราคา'], 49);
+    // 50. Truck Charge (Column AX = index 49) - Branch Sent Rate / TMS Amount / Charter Cost
+    const rawTruckCharge = getCol(row, ['truck charge', 'charge', 'ค่ารถ', 'ราคา', 'charter cost', 'charter_cost', 'chartercost'], 49);
     let truckCharge = 0;
     if (rawTruckCharge) {
       const cleanNum = String(rawTruckCharge).replace(/,/g, '').trim();
